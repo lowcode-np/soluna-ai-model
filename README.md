@@ -54,7 +54,7 @@ Soluna AI คือชุดเครื่องมือโอเพนซอ�
 ### ขั้นตอนการติดตั้ง
 1.  **Clone Repository:**
     ```bash
-    git clone [https://github.com/your-username/soluna-ai.git](https://github.com/your-username/soluna-ai.git)
+    git clone https://github.com/lowcode-np/soluna-ai-model.git
     cd soluna-ai
     ```
 
