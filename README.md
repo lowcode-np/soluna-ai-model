@@ -4,7 +4,7 @@
 
 ![Soluna AI Banner](https://cdn.imgchest.com/files/c8d6a484c8b0.png)
 
-[![Download](https://img.shields.io/badge/Download-blue)]()
+[![Download](https://img.shields.io/badge/SourceCode-blue)]()
 
 **Open-source AI-powered trading signal platform with complete ML pipeline**
 
