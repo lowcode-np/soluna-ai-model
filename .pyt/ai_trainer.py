@@ -500,7 +500,7 @@ def train_and_save_models(file_path, params, save_path):
         'FEATURE_NAMES': f_cols
     }
     
-    config_path = os.path.join(save_path, "training_config.json")
+    config_path = os.path.join(save_path, "config.json")
     with open(config_path, 'w') as f:
         json.dump(config_data, f, indent=4)
     log_terminal(f"Training config saved → {config_path}", status="SUCCESS")
