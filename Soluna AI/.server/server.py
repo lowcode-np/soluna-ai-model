@@ -649,7 +649,7 @@ if __name__ == '__main__':
     
     root = tk.Tk()
     try:
-        root.iconbitmap(".server/icon.ico")
+        root.iconbitmap(".ico/server.ico")
     except:
         pass
     app = SignalServerApp(root)

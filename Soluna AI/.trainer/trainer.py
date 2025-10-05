@@ -963,7 +963,7 @@ class TrainerApp:
 if __name__ == '__main__':
     root = tk.Tk()
     try:
-        root.iconbitmap(".trainer/icon.ico")
+        root.iconbitmap(".ico/trainer.ico")
     except:
         pass
     app = TrainerApp(root)
