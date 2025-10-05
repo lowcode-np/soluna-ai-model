@@ -1,4 +1,4 @@
-# Soluna AI
+# Soluna AI : Trainer & Server Tools
 
 Soluna AI คือชุดเครื่องมือโอเพนซอร์สที่ออกแบบมาเพื่อสร้าง, ฝึกสอน, และนำโมเดล Machine Learning ไปใช้งานจริงสำหรับการคาดการณ์สัญญาณซื้อขายในตลาดการเงิน ประกอบด้วยสองส่วนหลักคือ **AI Trainer** และ **Signal Server**
 
