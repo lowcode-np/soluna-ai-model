@@ -416,9 +416,9 @@ class SignalServerApp:
         model_inner.pack(fill='x', padx=5, pady=4)
         
         models = [
-            ("XGBoost", self.model_xgb, "xgb", ".pkl"),
-            ("Logistic", self.model_lr, "lr", ".pkl"),
-            ("LSTM", self.model_lstm, "lstm", ".h5"),
+            ("XGB Model", self.model_xgb, "xgb", ".pkl"),
+            ("LR Model", self.model_lr, "lr", ".pkl"),
+            ("LSTM Model", self.model_lstm, "lstm", ".h5"),
             ("Scaler", self.model_scaler, "scaler", ".pkl"),
             ("Config", self.model_config, "config", ".json")
         ]
@@ -527,13 +527,17 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
         tk.Label(col, text=label, bg="#1a1a2e", fg="#CCCCCC",
                 font=("Segoe UI", 7, "bold"), anchor='w').pack(fill='x')
         
-        btn_frame = tk.Frame(col, bg="#2a2a3e")
-        btn_frame.pack(fill='x')
+        selector_frame = tk.Frame(col, bg="#2a2a3e")
+        selector_frame.pack(fill='x')
         
-        tk.Button(btn_frame, text="SELECT",
+        tk.Button(selector_frame, text="SELECT",
                  command=lambda: self.select_model(var, key, ext),
                  bg="#4A90E2", fg="white", font=("Segoe UI", 6, "bold"),
-                 relief="flat", cursor="hand2", padx=6, pady=2).pack(fill='x', padx=2, pady=2)
+                 relief="flat", cursor="hand2", padx=6, pady=2).pack(side='left', padx=(2,4), pady=2)
+
+        filename_label = tk.Label(selector_frame, textvariable=var, bg="#2a2a3e", fg="#FFFFFF",
+                                 font=("Segoe UI", 7), anchor='w', wraplength=150, justify='left')
+        filename_label.pack(side='left', fill='x', expand=True, padx=(0,2), pady=2)
     
     def select_model(self, var, key, ext):
         file = filedialog.askopenfilename(
@@ -645,7 +649,7 @@ if __name__ == '__main__':
     
     root = tk.Tk()
     try:
-        root.iconbitmap(".pys/icon.ico")
+        root.iconbitmap(".server/icon.ico")
     except:
         pass
     app = SignalServerApp(root)

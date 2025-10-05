@@ -1,0 +1,27 @@
+# --- Core Machine Learning Libraries ---
+# TensorFlow 2.10.0 is the last version to support native Windows GPU and Python 3.8
+tensorflow==2.10.0
+
+# --- Data Handling and Numerics ---
+# Versions compatible with TensorFlow 2.10 and scikit-learn 1.1.x
+numpy==1.23.5
+pandas==1.5.3
+
+# --- Traditional ML Models ---
+# Stable versions from late 2022, fully compatible with Python 3.8
+scikit-learn==1.1.3
+xgboost==1.7.3
+joblib==1.2.0
+
+# --- Web Server for API ---
+# Pinning Werkzeug to 2.2.2 to fix the 'url_quote' ImportError with Flask
+Flask==2.2.2
+Werkzeug==2.2.2
+
+# --- Utilities ---
+# For data visualization in the trainer script
+matplotlib==3.6.3
+# For image handling in the server UI
+Pillow==9.3.0
+# For progress bars in the trainer script
+tqdm==4.66.1

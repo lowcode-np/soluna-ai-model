@@ -3,8 +3,8 @@ Set objShell = CreateObject("WScript.Shell")
 
 strBasePath = objFSO.GetParentFolderName(WScript.ScriptFullName)
 
-strPythonW = objFSO.BuildPath(strBasePath, ".tvenv\Scripts\python.exe")
-strAIScript = objFSO.BuildPath(strBasePath, ".pyt\ai_trainer.py")
+strPythonW = objFSO.BuildPath(strBasePath, ".venv\Scripts\python.exe")
+strAIScript = objFSO.BuildPath(strBasePath, ".trainer\trainer.py")
 
 strCommand = """" & strPythonW & """ """ & strAIScript & """"
 
