@@ -190,7 +190,7 @@ python -c "import tensorflow as tf; import xgboost; print('✅ Installation succ
 
 2. **Launch Trainer**
    ```bash
-   python "Soluna AI - Trainer.vbs"
+   "Soluna AI - Trainer.vbs"
    ```
 
 3. **Configure & Train**
@@ -202,7 +202,7 @@ python -c "import tensorflow as tf; import xgboost; print('✅ Installation succ
 
 4. **Launch Server**
    ```bash
-   python "Soluna AI - Server.vbs"
+   "Soluna AI - Server.vbs"
    ```
 
 5. **Load Models**
