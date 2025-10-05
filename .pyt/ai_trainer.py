@@ -526,6 +526,7 @@ class TrainerApp:
         self.root.resizable(False, False)
 
         self.file_path = tk.StringVar(value="No file selected")
+        self.save_path = tk.StringVar(value="No save location selected") # <<<< ADDED
         
         self.timeframe = tk.StringVar(value="1h")
         self.future_period = tk.StringVar(value="10")
@@ -600,6 +601,7 @@ class TrainerApp:
         tk.Frame(main_frame, bg="#FFD700", height=2).pack(fill='x', pady=(0, 5))
         
         self._create_file_selection_card(main_frame)
+        self._create_save_location_card(main_frame) # <<<< ADDED
         
         params_container = tk.Frame(main_frame, bg="#0f0f1e")
         params_container.pack(fill='both', expand=True, pady=(0, 5))
@@ -651,7 +653,7 @@ class TrainerApp:
         return card
 
     def _create_file_selection_card(self, parent):
-        file_card = self._create_card(parent, "🗂️Dataset", expand=False)
+        file_card = self._create_card(parent, "⚙️ Dataset", expand=False)
         file_inner = tk.Frame(file_card, bg="#1a1a2e")
         file_inner.pack(fill='x', padx=5, pady=4)
         file_path_frame = tk.Frame(file_inner, bg="#2a2a3e")
@@ -664,6 +666,21 @@ class TrainerApp:
                  relief="flat", cursor="hand2", padx=10, pady=2).pack(side='right', 
                  padx=2, pady=2)
     
+    # <<<< ADDED METHOD
+    def _create_save_location_card(self, parent):
+        save_card = self._create_card(parent, "📁 Save Model File", expand=False)
+        save_inner = tk.Frame(save_card, bg="#1a1a2e")
+        save_inner.pack(fill='x', padx=5, pady=4)
+        save_path_frame = tk.Frame(save_inner, bg="#2a2a3e")
+        save_path_frame.pack(fill='x')
+        tk.Label(save_path_frame, textvariable=self.save_path, bg="#2a2a3e", 
+                fg="#4AE290", anchor="w", font=("Segoe UI", 7)).pack(side='left', 
+                fill='x', expand=True, padx=4, pady=3)
+        tk.Button(save_path_frame, text="BROWSE", command=self.select_save_directory, 
+                 bg="#4AE290", fg="#0f0f1e", font=("Segoe UI", 7, "bold"), 
+                 relief="flat", cursor="hand2", padx=10, pady=2).pack(side='right', 
+                 padx=2, pady=2)
+
     def _create_data_params_card(self, parent):
         card = self._create_card(parent, "📊 Data & General Parameters", expand=False)
         grid = tk.Frame(card, bg="#1a1a2e")
@@ -794,20 +811,28 @@ class TrainerApp:
         if file_selected: 
             self.file_path.set(file_selected)
 
+    # <<<< ADDED METHOD
+    def select_save_directory(self):
+        dir_selected = filedialog.askdirectory(
+            title="Select a Parent Folder to Save Models In"
+        )
+        if dir_selected:
+            self.save_path.set(dir_selected)
+
     def start_training_thread(self):
+        # <<<< MODIFIED
         if self.file_path.get() == "No file selected":
             messagebox.showerror("Error", "Please select a CSV file first.")
+            return
+        if self.save_path.get() == "No save location selected":
+            messagebox.showerror("Error", "Please select a save location first.")
             return
         if self.is_training:
             messagebox.showwarning("In Progress", "Training is already running.")
             return
         
-        # Ask for the save directory
-        save_path = filedialog.askdirectory(title="Select a folder to save the models")
-        if not save_path:
-            log_terminal("Training cancelled by user.", status="WARNING")
-            messagebox.showinfo("Cancelled", "Training process was cancelled.")
-            return
+        parent_path = self.save_path.get()
+        save_path = os.path.join(parent_path, ".model")
 
         try:
             params = {
