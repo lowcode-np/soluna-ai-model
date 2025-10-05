@@ -32,6 +32,72 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, scrolledtext
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 
+# --- Splash Screen Class ---
+class SplashScreen:
+    def __init__(self, root, duration_seconds=5):
+        self.root = root
+        self.splash = tk.Toplevel(root)
+        self.splash.overrideredirect(True)
+        self.splash.configure(bg="#0f0f1e")
+
+        self.duration_ms = duration_seconds * 1000
+        self.update_interval_ms = 50 
+        self.total_steps = self.duration_ms // self.update_interval_ms
+        self.progress_increment = 100 / self.total_steps
+        self.current_step = 0
+
+        width, height = 600, 350
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+        self.splash.geometry(f'{width}x{height}+{x}+{y}')
+        
+        main_frame = tk.Frame(self.splash, bg="#1a1a2e", highlightbackground="#FFD700", highlightthickness=1)
+        main_frame.pack(fill='both', expand=True, padx=1, pady=1)
+        
+        tk.Label(main_frame, text="SOLUNA AI", bg="#1a1a2e", fg="#FFD700", 
+                 font=("Segoe UI", 48, "bold")).pack(pady=(60, 0))
+        tk.Label(main_frame, text="AI Trainer Tools Platform", bg="#1a1a2e", fg="#CCCCCC", 
+                 font=("Segoe UI", 12)).pack(pady=(0, 40))
+
+        self.status_label = tk.Label(main_frame, text="Initializing...", bg="#1a1a2e", fg="#888888",
+                                     font=("Segoe UI", 10))
+        self.status_label.pack(pady=(20, 5))
+
+        s = ttk.Style()
+        s.theme_use('clam')
+        s.configure("green.Horizontal.TProgressbar", foreground='#FFD700', background='#FFD700', troughcolor='#2a2a3e', bordercolor="#1a1a2e", lightcolor="#1a1a2e", darkcolor="#1a1a2e")
+        self.progress = ttk.Progressbar(main_frame, style="green.Horizontal.TProgressbar", orient="horizontal", 
+                                        length=400, mode='determinate')
+        self.progress.pack(pady=(0, 20))
+
+    def _animate(self):
+        if self.current_step <= self.total_steps:
+            # อัปเดต Progress Bar
+            self.progress['value'] = self.current_step * self.progress_increment
+            
+            # อัปเดตข้อความตามความคืบหน้า
+            progress_percent = (self.current_step / self.total_steps) * 100
+            if progress_percent < 40:
+                self.status_label.config(text="Initializing components...")
+            elif progress_percent < 80:
+                self.status_label.config(text="Loading models...")
+            else:
+                self.status_label.config(text="Finalizing...")
+            
+            self.current_step += 1
+            self.splash.after(self.update_interval_ms, self._animate)
+        else:
+            self.close()
+
+    def close(self):
+        self.splash.destroy()
+        self.root.deiconify()
+
+    def start(self):
+        self.splash.after(0, self._animate)
+
 # --- Suppress Warnings for Clean Output ---
 warnings.filterwarnings("ignore", category=UserWarning, module='xgboost')
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -962,15 +1028,16 @@ class TrainerApp:
 # =============================================================================
 if __name__ == '__main__':
     root = tk.Tk()
+    root.withdraw()
+    
     try:
-        root.iconbitmap(".ico/trainer.ico")
+        root.iconbitmap(".icon/trainer.ico")
     except:
         pass
     app = TrainerApp(root)
     process_queue(root) 
-    log_terminal("Soluna AI Trainer System Ready", status="SUCCESS", header=True)
-    try:
-        tf.config.set_visible_devices([], 'GPU')
-    except Exception:
-        pass 
+    
+    splash = SplashScreen(root, duration_seconds=3)
+    splash.start()
+    
     root.mainloop()

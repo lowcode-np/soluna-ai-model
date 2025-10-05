@@ -12,7 +12,7 @@ import time
 import json
 import traceback
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 
 from sklearn.preprocessing import StandardScaler
@@ -23,6 +23,72 @@ from tensorflow.keras.models import load_model
 from flask import Flask, jsonify, request
 from werkzeug.serving import make_server
 import logging
+
+# --- Splash Screen Class ---
+class SplashScreen:
+    def __init__(self, root, duration_seconds=5):
+        self.root = root
+        self.splash = tk.Toplevel(root)
+        self.splash.overrideredirect(True)
+        self.splash.configure(bg="#0f0f1e")
+
+        self.duration_ms = duration_seconds * 1000 
+        self.update_interval_ms = 50
+        self.total_steps = self.duration_ms // self.update_interval_ms
+        self.progress_increment = 100 / self.total_steps
+        self.current_step = 0
+
+        width, height = 600, 350
+        screen_width = root.winfo_screenwidth()
+        screen_height = root.winfo_screenheight()
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+        self.splash.geometry(f'{width}x{height}+{x}+{y}')
+        
+        main_frame = tk.Frame(self.splash, bg="#1a1a2e", highlightbackground="#00ff88", highlightthickness=1)
+        main_frame.pack(fill='both', expand=True, padx=1, pady=1)
+        
+        tk.Label(main_frame, text="SOLUNA AI", bg="#1a1a2e", fg="#00ff88", 
+                 font=("Segoe UI", 48, "bold")).pack(pady=(60, 0))
+        tk.Label(main_frame, text="Real-time AI Trading Signal Platform", bg="#1a1a2e", fg="#CCCCCC", 
+                 font=("Segoe UI", 12)).pack(pady=(0, 40))
+
+        self.status_label = tk.Label(main_frame, text="Initializing...", bg="#1a1a2e", fg="#888888",
+                                     font=("Segoe UI", 10))
+        self.status_label.pack(pady=(20, 5))
+
+        s = ttk.Style()
+        s.theme_use('clam')
+        s.configure("green.Horizontal.TProgressbar", foreground='#00ff88', background='#00ff88', troughcolor='#2a2a3e', bordercolor="#1a1a2e", lightcolor="#1a1a2e", darkcolor="#1a1a2e")
+        self.progress = ttk.Progressbar(main_frame, style="green.Horizontal.TProgressbar", orient="horizontal", 
+                                        length=400, mode='determinate')
+        self.progress.pack(pady=(0, 20))
+
+    def _animate(self):
+        if self.current_step <= self.total_steps:
+            # อัปเดต Progress Bar
+            self.progress['value'] = self.current_step * self.progress_increment
+            
+            # อัปเดตข้อความตามความคืบหน้า
+            progress_percent = (self.current_step / self.total_steps) * 100
+            if progress_percent < 40:
+                self.status_label.config(text="Initializing components...")
+            elif progress_percent < 80:
+                self.status_label.config(text="Loading models...")
+            else:
+                self.status_label.config(text="Finalizing...")
+            
+            self.current_step += 1
+            self.splash.after(self.update_interval_ms, self._animate)
+        else:
+            self.close()
+
+    def close(self):
+        self.splash.destroy()
+        self.root.deiconify()
+
+    def start(self):
+        self.splash.after(0, self._animate)
 
 # --- Configuration ---
 class ServerConfig:
@@ -633,24 +699,26 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
         
         draw.text((width // 2, 35), "SOLUNA", fill='#00ff88', font=title_font, anchor="mm")
         draw.text((width // 2, 60), "SERVER", fill='#FFFFFF', font=title_font, anchor="mm")
-        # ข้อความชิดล่าง
         draw.text((width // 2, height - 35), "Signal API", fill='#CCCCCC', font=sub_font, anchor="mm")
         draw.text((width // 2, height - 15), "Real-time Trading", fill='#CCCCCC', font=sub_font, anchor="mm")
         
         return img
 
+# =============================================================================
+# 7. APPLICATION ENTRY POINT
+# =============================================================================
+
 if __name__ == '__main__':
-    log_terminal("Soluna AI Signal Server", header=True)
-    
-    try:
-        tf.config.set_visible_devices([], 'GPU')
-    except:
-        pass
-    
     root = tk.Tk()
+    root.withdraw()
+    
     try:
-        root.iconbitmap(".ico/server.ico")
+        root.iconbitmap(".icon/server.ico")
     except:
         pass
     app = SignalServerApp(root)
+    
+    splash = SplashScreen(root, duration_seconds=5)
+    splash.start()
+    
     root.mainloop()
