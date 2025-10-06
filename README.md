@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Soluna AI Banner](https://cdn.imgchest.com/files/c8d6a484c8b0.png)
+![Soluna AI Trainer](https://cdn.imgchest.com/files/f089fa0acaab.png) ![Soluna AI Server](https://cdn.imgchest.com/files/6ca64abe28ca.png)
 
 [![SourceCode](https://img.shields.io/badge/SourceCode-v1.5-orange.svg)](https://drive.google.com/uc?export=download&id=1f0z6NaHOn1DuQI-YsDoBN0sMpoi87o_R)
 
