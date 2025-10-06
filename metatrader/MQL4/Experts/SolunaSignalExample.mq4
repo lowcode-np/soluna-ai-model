@@ -1,16 +1,15 @@
 //+------------------------------------------------------------------+
 //|                                         SolunaSignalExample.mq4  |
 //|                                  Example EA using Soluna Signal  |
+//|                                  File-based version (No WebReq)  |
 //+------------------------------------------------------------------+
 #property copyright "Soluna AI"
-#property version   "1.00"
+#property version   "2.00"
 #property strict
 
 #include <SolunaSignalClient.mqh>
 
 //--- Input parameters
-input string   ServerHost = "127.0.0.1";     // Server Host
-input int      ServerPort = 5000;            // Server Port
 input int      CandleCount = 500;            // Number of candles to send
 input int      SignalInterval = 60;          // Check signal every N seconds
 input bool     EnableTrading = false;        // Enable automatic trading
@@ -25,21 +24,23 @@ datetime g_last_check = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Initialize client
-   g_client.SetServer(ServerHost, ServerPort);
+   // Initialize client (File-based - no server config needed)
    g_client.SetMinCandles(300);
-   g_client.SetTimeout(30000);
+   g_client.SetTimeout(30);  // seconds
    
-   // Check server health
-   Print("Checking Soluna AI server connection...");
+   // Check if file system is ready
+   Print("Checking file system...");
    if(g_client.CheckHealth())
    {
-      Print("✅ Connected to Soluna AI server successfully!");
+      Print("✅ File system OK - Python bridge ready!");
+      Print("📂 Request: C:\\MT4Bridge\\requests\\");
+      Print("📂 Response: C:\\MT4Bridge\\responses\\");
    }
    else
    {
-      Print("❌ Failed to connect: ", g_client.GetLastError());
-      Print("⚠️  EA will continue but signals may not work");
+      Print("❌ Failed: ", g_client.GetLastError());
+      Print("⚠️  Make sure C:\\MT4Bridge\\ folder exists!");
+      Print("⚠️  Make sure Python server is running!");
    }
    
    return(INIT_SUCCEEDED);
@@ -67,7 +68,7 @@ void OnTick()
    // Get signal
    SolunaSignal signal;
    
-   Print("Requesting signal from Soluna AI...");
+   Print("📤 Requesting signal from Soluna AI...");
    
    if(g_client.GetSignal(_Symbol, PERIOD_CURRENT, CandleCount, signal))
    {

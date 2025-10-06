@@ -1,16 +1,15 @@
 //+------------------------------------------------------------------+
 //|                                         SolunaSignalExample.mq5  |
 //|                                  Example EA using Soluna Signal  |
+//|                                  File-based version (No WebReq)  |
 //+------------------------------------------------------------------+
 #property copyright "Soluna AI"
-#property version   "1.00"
+#property version   "2.00"
 #property strict
 
 #include <SolunaSignalClient.mqh>
 
 //--- Input parameters
-input string   ServerHost = "127.0.0.1";     // Server Host
-input int      ServerPort = 5000;            // Server Port
 input int      CandleCount = 500;            // Number of candles to send
 input int      SignalInterval = 60;          // Check signal every N seconds
 input bool     EnableTrading = false;        // Enable automatic trading
@@ -25,21 +24,23 @@ datetime g_last_check = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Initialize client
-   g_client.SetServer(ServerHost, ServerPort);
+   // Initialize client (File-based - no server config needed)
    g_client.SetMinCandles(300);
-   g_client.SetTimeout(30000);
+   g_client.SetTimeout(30);  // seconds
    
-   // Check server health
-   Print("Checking Soluna AI server connection...");
+   // Check if file system is ready
+   Print("Checking file system...");
    if(g_client.CheckHealth())
    {
-      Print("✅ Connected to Soluna AI server successfully!");
+      Print("✅ File system OK - Python bridge ready!");
+      Print("📂 Request: C:\\MT4Bridge\\requests\\");
+      Print("📂 Response: C:\\MT4Bridge\\responses\\");
    }
    else
    {
-      Print("❌ Failed to connect: ", g_client.GetLastError());
-      Print("⚠️  EA will continue but signals may not work");
+      Print("❌ Failed: ", g_client.GetLastError());
+      Print("⚠️  Make sure C:\\MT4Bridge\\ folder exists!");
+      Print("⚠️  Make sure Python server is running!");
    }
    
    return(INIT_SUCCEEDED);
@@ -67,7 +68,7 @@ void OnTick()
    // Get signal
    SolunaSignal signal;
    
-   Print("Requesting signal from Soluna AI...");
+   Print("📤 Requesting signal from Soluna AI...");
    
    if(g_client.GetSignal(_Symbol, PERIOD_CURRENT, CandleCount, signal))
    {
@@ -112,25 +113,11 @@ void PrintSignal(SolunaSignal &signal)
 void ExecuteTrade(SolunaSignal &signal)
 {
    // Check if we already have an open position
-   #ifdef __MQL5__
-      if(PositionSelect(_Symbol))
-      {
-         Print("⚠️  Position already open, skipping trade");
-         return;
-      }
-   #else
-      if(OrdersTotal() > 0)
-      {
-         for(int i = 0; i < OrdersTotal(); i++)
-         {
-            if(OrderSelect(i, SELECT_BY_POS) && OrderSymbol() == _Symbol)
-            {
-               Print("⚠️  Order already exists, skipping trade");
-               return;
-            }
-         }
-      }
-   #endif
+   if(PositionSelect(_Symbol))
+   {
+      Print("⚠️  Position already open, skipping trade");
+      return;
+   }
    
    // Execute based on signal
    if(signal.signal == "BUY")
@@ -152,41 +139,26 @@ void ExecuteTrade(SolunaSignal &signal)
 //+------------------------------------------------------------------+
 void OpenBuy(SolunaSignal &signal)
 {
-   #ifdef __MQL5__
-      MqlTradeRequest request = {};
-      MqlTradeResult result = {};
-      
-      request.action = TRADE_ACTION_DEAL;
-      request.symbol = _Symbol;
-      request.volume = LotSize;
-      request.type = ORDER_TYPE_BUY;
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      request.deviation = 10;
-      request.magic = 123456;
-      request.comment = "Soluna AI BUY - " + signal.confidence;
-      
-      if(OrderSend(request, result))
-      {
-         Print("✅ BUY order placed successfully! Ticket: ", result.order);
-      }
-      else
-      {
-         Print("❌ BUY order failed: ", result.comment);
-      }
-   #else
-      double ask = MarketInfo(_Symbol, MODE_ASK);
-      int ticket = OrderSend(_Symbol, OP_BUY, LotSize, ask, 10, 0, 0, 
-                            "Soluna AI BUY - " + signal.confidence, 123456, 0, clrGreen);
-      
-      if(ticket > 0)
-      {
-         Print("✅ BUY order placed successfully! Ticket: ", ticket);
-      }
-      else
-      {
-         Print("❌ BUY order failed: ", GetLastError());
-      }
-   #endif
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_DEAL;
+   request.symbol = _Symbol;
+   request.volume = LotSize;
+   request.type = ORDER_TYPE_BUY;
+   request.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   request.deviation = 10;
+   request.magic = 123456;
+   request.comment = "Soluna AI BUY - " + signal.confidence;
+   
+   if(OrderSend(request, result))
+   {
+      Print("✅ BUY order placed successfully! Ticket: ", result.order);
+   }
+   else
+   {
+      Print("❌ BUY order failed: ", result.comment);
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -194,39 +166,24 @@ void OpenBuy(SolunaSignal &signal)
 //+------------------------------------------------------------------+
 void OpenSell(SolunaSignal &signal)
 {
-   #ifdef __MQL5__
-      MqlTradeRequest request = {};
-      MqlTradeResult result = {};
-      
-      request.action = TRADE_ACTION_DEAL;
-      request.symbol = _Symbol;
-      request.volume = LotSize;
-      request.type = ORDER_TYPE_SELL;
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      request.deviation = 10;
-      request.magic = 123456;
-      request.comment = "Soluna AI SELL - " + signal.confidence;
-      
-      if(OrderSend(request, result))
-      {
-         Print("✅ SELL order placed successfully! Ticket: ", result.order);
-      }
-      else
-      {
-         Print("❌ SELL order failed: ", result.comment);
-      }
-   #else
-      double bid = MarketInfo(_Symbol, MODE_BID);
-      int ticket = OrderSend(_Symbol, OP_SELL, LotSize, bid, 10, 0, 0,
-                            "Soluna AI SELL - " + signal.confidence, 123456, 0, clrRed);
-      
-      if(ticket > 0)
-      {
-         Print("✅ SELL order placed successfully! Ticket: ", ticket);
-      }
-      else
-      {
-         Print("❌ SELL order failed: ", GetLastError());
-      }
-   #endif
+   MqlTradeRequest request = {};
+   MqlTradeResult result = {};
+   
+   request.action = TRADE_ACTION_DEAL;
+   request.symbol = _Symbol;
+   request.volume = LotSize;
+   request.type = ORDER_TYPE_SELL;
+   request.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   request.deviation = 10;
+   request.magic = 123456;
+   request.comment = "Soluna AI SELL - " + signal.confidence;
+   
+   if(OrderSend(request, result))
+   {
+      Print("✅ SELL order placed successfully! Ticket: ", result.order);
+   }
+   else
+   {
+      Print("❌ SELL order failed: ", result.comment);
+   }
 }
