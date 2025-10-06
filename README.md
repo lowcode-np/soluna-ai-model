@@ -75,20 +75,77 @@
 
 ### 🖥️ Signal Server
 ![Soluna AI Server](https://cdn.imgchest.com/files/6ca64abe28ca.png)
-- **RESTful API**: Production-ready Flask server
-- **MT4 File Bridge**: Integrated file-based communication (no WebRequest needed)
-- **Ensemble Prediction**: Combines predictions from all three models using majority voting
-- **Real-time Processing**: Generate signals from live market data
-- **Health Monitoring**: Built-in health check endpoints
-- **Configuration Tracking**: Uses training configuration for consistent feature generation
-- **Detailed Responses**: Returns model votes, confidence levels, and metadata
+- **File-Based Communication**: Operates entirely through MT4/MT5 Common Files — no WebRequest or network setup required
+- **Automatic Path Configuration**: Creates and manages folders under your MetaTrader common directory:
+  ```
+  C:\Users\<Username>\AppData\Roaming\MetaQuotes\Terminal\Common\Files\SolunaBridge\
+  ├─ requests\
+  └─ responses\
+  ```
+- **GUI Application**: Provides an interactive interface with model selection, status monitoring, and live logs
+- **Built-in Splash Screen**: Modern startup animation with progress feedback
+- **Automatic Config File**: Writes `server_config.txt` containing your bridge paths
+- **File Bridge Engine**: Continuously scans for JSON requests from MetaTrader, processes signals using loaded models, and writes responses automatically
+- **No WebRequest Needed**: 100% offline communication between Python and MetaTrader
+- **Model Management**: Load all 5 required model files directly from the interface:
+  - `xgb_model.pkl`
+  - `lr_model.pkl`
+  - `lstm_model.h5`
+  - `scaler.pkl`
+  - `config.json`
+- **Signal Generation**: Each signal combines outputs from XGB, LR, and LSTM models using majority voting
+- **Confidence Calculation**: Displays percentage of model agreement
+- **Live Logging**: Real-time logs with emoji indicators for INFO, FILE, SIGNAL, and ERROR events
+
 
 ### 🔌 MetaTrader Integration
 
-- **Universal MQH Library**: Compatible with both MT4 and MT5
-- **Easy Integration**: Simple struct-based API
-- **Example EA Included**: Ready-to-use Expert Advisor template
-- **Robust Error Handling**: Comprehensive error messages and validation
+- **File-Based Connection**: Communicates directly with Soluna Server via file exchange
+- **Universal MQH Library**: `SolunaSignalClient.mqh` supports both MT4 and MT5
+- **No WebRequest Setup Needed**: The EA interacts through shared folders, ensuring compatibility with all brokers and builds
+- **Automatic JSON Bridge**:
+  - MT4 writes JSON request files containing candle data
+  - Server reads them, generates signals, and writes JSON responses back
+- **Example EA Included**: `SolunaSignalExample.mq4` demonstrates end-to-end integration
+
+### Folder Structure
+```
+MT4 Common Files
+└── SolunaBridge
+    ├── requests\       ← EA writes candle data here
+    └── responses\      ← Server writes prediction results here
+```
+
+### Basic Usage
+```cpp
+#include <SolunaSignalClient.mqh>
+
+CSolunaSignalClient client;
+client.SetMinCandles(300);
+client.SetTimeout(30); // seconds
+
+if(client.CheckHealth())
+{
+   Print("✅ Soluna Bridge ready!");
+}
+
+SolunaSignal signal;
+if(client.GetSignal(_Symbol, PERIOD_H1, 500, signal))
+{
+   Print("Signal: ", signal.signal);
+   Print("Confidence: ", signal.confidence);
+
+   if(signal.signal == "BUY")
+      OrderSend(_Symbol, OP_BUY, 0.1, Ask, 10, 0, 0, "SolunaAI", 0, 0, clrGreen);
+}
+```
+
+### Key Advantages
+- Works fully offline (no internet or WebRequest setup)
+- Simple, stable, and compatible with all MT4/MT5 versions
+- Supports multiple symbols and timeframes
+- Auto-cleanup of old request/response files
+
 
 ---
 
@@ -107,7 +164,7 @@
         └───────┬────────┘           └──────┬───────┘
                 │                           │
         ┌───────▼────────┐           ┌──────▼───────┐
-        │ • Data Import  │           │ • REST API   │
+        │ • Data Import  │           │ • Signal     │
         │ • Feature Eng  │           │ • Ensemble   │
         │ • Model Train  │           │ • MT4 Bridge │
         │ • Export       │           │ • Monitoring │
