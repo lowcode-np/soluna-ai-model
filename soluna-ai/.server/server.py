@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-# Soluna AI: Signal Server with Integrated MT4/5 File Bridge
+# Soluna AI: File-Based Signal Server
 
 import os
 import sys
 import joblib
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
 import time
 import json
@@ -20,22 +20,26 @@ from xgboost import XGBClassifier
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 
-from flask import Flask, jsonify, request
-from werkzeug.serving import make_server
-import logging
+# =============== CONFIGURATION ===============
+# MT4/MT5 Common Files path - แก้ตาม username ของคุณ
+MT4_COMMON_PATH = os.path.expanduser("~/AppData/Roaming/MetaQuotes/Terminal/Common/Files")
+REQUEST_DIR = os.path.join(MT4_COMMON_PATH, "SolunaBridge", "requests")
+RESPONSE_DIR = os.path.join(MT4_COMMON_PATH, "SolunaBridge", "responses")
+CONFIG_FILE = os.path.join(MT4_COMMON_PATH, "SolunaBridge", "server_config.txt")
 
-# =============== MT4/5 BRIDGE CONFIGURATION ===============
-MT4_5_BRIDGE_ENABLED = True
-REQUEST_DIR = "C:/MTBridge/requests"
-RESPONSE_DIR = "C:/MTBridge/responses"
 BRIDGE_CHECK_INTERVAL = 0.5
 
-# สร้างโฟลเดอร์สำหรับ Bridge
-if MT4_5_BRIDGE_ENABLED:
-    os.makedirs(REQUEST_DIR, exist_ok=True)
-    os.makedirs(RESPONSE_DIR, exist_ok=True)
+# สร้างโฟลเดอร์
+os.makedirs(REQUEST_DIR, exist_ok=True)
+os.makedirs(RESPONSE_DIR, exist_ok=True)
 
-# --- Splash Screen Class ---
+# เขียนไฟล์ config บอก path
+with open(CONFIG_FILE, 'w') as f:
+    f.write(f"{MT4_COMMON_PATH}\n")
+    f.write(f"SolunaBridge/requests\n")
+    f.write(f"SolunaBridge/responses\n")
+
+# --- Splash Screen ---
 class SplashScreen:
     def __init__(self, root, duration_seconds=5):
         self.root = root
@@ -61,7 +65,7 @@ class SplashScreen:
         
         tk.Label(main_frame, text="SOLUNA AI", bg="#1a1a2e", fg="#00ff88", 
                  font=("Segoe UI", 48, "bold")).pack(pady=(60, 0))
-        tk.Label(main_frame, text="Real-time AI Trading Signal Platform", bg="#1a1a2e", fg="#CCCCCC", 
+        tk.Label(main_frame, text="File-Based Signal Server", bg="#1a1a2e", fg="#CCCCCC", 
                  font=("Segoe UI", 12)).pack(pady=(0, 40))
 
         self.status_label = tk.Label(main_frame, text="Initializing...", bg="#1a1a2e", fg="#888888",
@@ -70,9 +74,10 @@ class SplashScreen:
 
         s = ttk.Style()
         s.theme_use('clam')
-        s.configure("green.Horizontal.TProgressbar", foreground='#00ff88', background='#00ff88', troughcolor='#2a2a3e', bordercolor="#1a1a2e", lightcolor="#1a1a2e", darkcolor="#1a1a2e")
-        self.progress = ttk.Progressbar(main_frame, style="green.Horizontal.TProgressbar", orient="horizontal", 
-                                        length=400, mode='determinate')
+        s.configure("green.Horizontal.TProgressbar", foreground='#00ff88', background='#00ff88', 
+                   troughcolor='#2a2a3e', bordercolor="#1a1a2e", lightcolor="#1a1a2e", darkcolor="#1a1a2e")
+        self.progress = ttk.Progressbar(main_frame, style="green.Horizontal.TProgressbar", 
+                                       orient="horizontal", length=400, mode='determinate')
         self.progress.pack(pady=(0, 20))
 
     def _animate(self):
@@ -81,11 +86,11 @@ class SplashScreen:
             
             progress_percent = (self.current_step / self.total_steps) * 100
             if progress_percent < 40:
-                self.status_label.config(text="Initializing components...")
+                self.status_label.config(text="Initializing...")
             elif progress_percent < 80:
                 self.status_label.config(text="Loading models...")
             else:
-                self.status_label.config(text="Finalizing...")
+                self.status_label.config(text="Ready...")
             
             self.current_step += 1
             self.splash.after(self.update_interval_ms, self._animate)
@@ -99,20 +104,10 @@ class SplashScreen:
     def start(self):
         self.splash.after(0, self._animate)
 
-# --- Configuration ---
-class ServerConfig:
-    BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-    MODEL_DIR = os.path.join(BASE_PATH, '.models')
-    DEFAULT_HOST = '127.0.0.1'
-    DEFAULT_PORT = 5000
-    NUM_CLASSES = 3
-
 # --- Global State ---
 app_state = {
-    "latest_signal": {"status": "Waiting for data...", "signal": "NEUTRAL"},
     "is_server_running": False,
-    "server_instance": None,
-    "bridge_instance": None,  # MT4/5 Bridge thread
+    "bridge_instance": None,
     "models": {},
     "scaler": None,
     "training_config": None,
@@ -133,19 +128,17 @@ EMOJI_MAP = {
     "SUCCESS": "✅",
     "ERROR": "❌",
     "SIGNAL": "📡",
-    "BRIDGE": "🔄"
+    "FILE": "📂"
 }
 
-# --- Logging ---
 def log_terminal(message, status="INFO", header=False):
     timestamp = datetime.now().strftime("%H:%M:%S")
-    output = ""
     
     if header:
         separator = "=" * 60
         output = f"\n{separator}\n{message.center(60)}\n{separator}\n"
     else:
-        emoji = EMOJI_MAP.get(status, "🔹") 
+        emoji = EMOJI_MAP.get(status, "🔹")
         output = f"{emoji} [{timestamp}] [{status:<7}] {message}\n"
         
     print(output, end="", flush=True)
@@ -159,7 +152,7 @@ def log_terminal(message, status="INFO", header=False):
         except:
             pass
 
-# --- Technical Indicators ---
+# --- Technical Indicators (เหมือนเดิม) ---
 def get_atr(high, low, close, n=14):
     tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
     return tr.ewm(alpha=1/n, adjust=False).mean()
@@ -174,7 +167,7 @@ def get_adx(high, low, close, n=14):
     plus_di = 100 * (plus_dm.ewm(alpha=1/n, adjust=False).mean() / atr)
     minus_di = 100 * (minus_dm.ewm(alpha=1/n, adjust=False).mean() / atr)
     sum_di = plus_di + minus_di
-    dx = pd.Series(0.0, index=close.index) 
+    dx = pd.Series(0.0, index=close.index)
     valid_mask = (sum_di != 0)
     dx[valid_mask] = 100 * (abs(plus_di[valid_mask] - minus_di[valid_mask]) / sum_di[valid_mask])
     return dx.ewm(alpha=1/n, adjust=False).mean(), plus_di, minus_di
@@ -202,7 +195,6 @@ def get_bollinger_bands(close, n=20, std=2):
     lower = sma - (std_dev * std)
     return upper, sma, lower
 
-# --- Feature Creation ---
 def create_gold_features_from_config(df_raw, config):
     df = df_raw.copy()
     open, high, low, close, volume = df['Open'], df['High'], df['Low'], df['Close'], df['Volume']
@@ -264,11 +256,8 @@ def create_gold_features_from_config(df_raw, config):
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
 
-    feature_cols = config['FEATURE_NAMES']
-    
-    return df, feature_cols
+    return df, config['FEATURE_NAMES']
 
-# --- Model Loading ---
 def load_all_models():
     try:
         paths = app_state["model_paths"]
@@ -280,7 +269,6 @@ def load_all_models():
         with open(paths["config"], 'r') as f:
             app_state["training_config"] = json.load(f)
         log_terminal(f"Training config loaded", status="SUCCESS")
-        log_terminal(f"  → RSI Period: {app_state['training_config']['RSI_PERIOD']}", status="INFO")
         
         app_state["scaler"] = joblib.load(paths["scaler"])
         app_state["models"]["xgb"] = joblib.load(paths["xgb"])
@@ -289,19 +277,18 @@ def load_all_models():
         with tf.device('/cpu:0'):
             app_state["models"]["lstm"] = load_model(paths["lstm"])
         
-        log_terminal("All models loaded successfully", status="SUCCESS")
+        log_terminal("All models loaded", status="SUCCESS")
         return True
         
     except Exception as e:
-        log_terminal(f"Model loading failed: {e}", status="ERROR")
+        log_terminal(f"Model loading failed: {e}")
         traceback.print_exc()
         return False
 
-# --- Signal Generation ---
 def generate_signal(historical_data):
     try:
         if not app_state["models"] or app_state["scaler"] is None or app_state["training_config"] is None:
-            return {"error": "Models or config not loaded"}
+            return {"error": "Models not loaded"}
         
         config = app_state["training_config"]
         
@@ -349,67 +336,56 @@ def generate_signal(historical_data):
             "price": float(df['Close'].iloc[-1])
         }
         
-        app_state["latest_signal"] = result
         log_terminal(f"Signal: {result['signal']} ({result['confidence']}) @ {result['price']:.2f}", 
                     status="SIGNAL")
         
         return result
         
     except Exception as e:
-        log_terminal(f"Signal generation error: {e}", status="ERROR")
+        log_terminal(f"Signal error: {e}", status="ERROR")
         traceback.print_exc()
         return {"error": str(e)}
 
-# =============== MT4/5 FILE BRIDGE ===============
-def mt4_bridge_worker():
-    """รัน MT4/5 File Bridge ใน background thread"""
-    log_terminal("MT4/5 Bridge started", status="BRIDGE")
+# =============== FILE BRIDGE ===============
+def file_bridge_worker():
+    log_terminal("File Bridge started", status="FILE")
+    log_terminal(f"Monitoring: {REQUEST_DIR}", status="FILE")
     processed = set()
     
     while app_state["is_server_running"]:
         try:
-            # สแกนไฟล์ request
             if not os.path.exists(REQUEST_DIR):
                 time.sleep(1)
                 continue
                 
             for filename in os.listdir(REQUEST_DIR):
-                if not filename.endswith('.json'):
-                    continue
-                    
-                if filename in processed:
+                if not filename.endswith('.json') or filename in processed:
                     continue
                 
                 filepath = os.path.join(REQUEST_DIR, filename)
                 
                 try:
-                    # อ่าน request
-                    time.sleep(0.1)  # รอให้เขียนไฟล์เสร็จ
+                    time.sleep(0.1)
                     
                     with open(filepath, 'r') as f:
                         data = json.load(f)
                     
                     request_id = filename.replace('.json', '')
-                    log_terminal(f"MT4/5 request: {request_id}", status="BRIDGE")
+                    log_terminal(f"Request: {request_id}", status="FILE")
                     
-                    # สร้าง signal
                     result = generate_signal(data['candles'])
                     
-                    # เขียน response
                     response_file = os.path.join(RESPONSE_DIR, filename)
                     with open(response_file, 'w') as f:
                         json.dump(result, f)
                     
-                    # ลบ request file
                     os.remove(filepath)
                     processed.add(filename)
                     
-                    log_terminal(f"Response sent: {result.get('signal', 'ERROR')}", status="BRIDGE")
+                    log_terminal(f"Response: {result.get('signal', 'ERROR')}", status="FILE")
                     
                 except Exception as e:
-                    log_terminal(f"Bridge error: {e}", status="ERROR")
-                    
-                    # เขียน error response
+                    log_terminal(f"Error: {e}", status="ERROR")
                     try:
                         error_data = {"error": str(e)}
                         response_file = os.path.join(RESPONSE_DIR, filename)
@@ -419,86 +395,25 @@ def mt4_bridge_worker():
                     except:
                         pass
             
-            # เคลียร์ processed
             if len(processed) > 100:
                 processed.clear()
             
             time.sleep(BRIDGE_CHECK_INTERVAL)
             
         except Exception as e:
-            log_terminal(f"Bridge loop error: {e}", status="ERROR")
+            log_terminal(f"Bridge error: {e}", status="ERROR")
             time.sleep(2)
     
-    log_terminal("MT4/5 Bridge stopped", status="BRIDGE")
+    log_terminal("File Bridge stopped", status="FILE")
 
-# --- Flask Server ---
-flask_app = Flask(__name__)
-logging.getLogger('werkzeug').setLevel(logging.ERROR)
-
-@flask_app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        "status": "running" if app_state["is_server_running"] else "stopped",
-        "models_loaded": len(app_state["models"]) > 0,
-        "config_loaded": app_state["training_config"] is not None,
-        "mt4_bridge": MT4_5_BRIDGE_ENABLED
-    })
-
-@flask_app.route('/signal', methods=['POST'])
-def get_signal_endpoint():
-    try:
-        data = request.get_json()
-        
-        if not data or 'candles' not in data:
-            return jsonify({"error": "Invalid format"}), 400
-        
-        candles = data['candles']
-        
-        min_candles = app_state["training_config"]['LSTM_SEQ_LEN'] + 200 if app_state["training_config"] else 300
-        
-        if len(candles) < min_candles:
-            return jsonify({
-                "error": f"Need minimum {min_candles} candles, received {len(candles)}"
-            }), 400
-        
-        signal = generate_signal(candles)
-        
-        if "error" in signal:
-            return jsonify(signal), 500
-        
-        return jsonify(signal)
-        
-    except Exception as e:
-        log_terminal(f"API error: {e}", status="ERROR")
-        return jsonify({"error": str(e)}), 500
-
-# --- Server Thread ---
-class ServerThread(threading.Thread):
-    def __init__(self, app, host, port):
-        threading.Thread.__init__(self, daemon=True)
-        self.host = host
-        self.port = port
-        self.server = make_server(self.host, self.port, app)
-        self.ctx = app.app_context()
-        self.ctx.push()
-
-    def run(self):
-        self.server.serve_forever()
-
-    def shutdown(self):
-        self.server.shutdown()
-
-# --- UI Application ---
+# --- UI ---
 class SignalServerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Soluna AI Signal Server")
-        self.root.geometry("900x650")
+        self.root.title("Soluna AI File Server")
+        self.root.geometry("900x600")
         self.root.configure(bg="#0f0f1e")
         self.root.resizable(False, False)
-        
-        self.host = tk.StringVar(value=ServerConfig.DEFAULT_HOST)
-        self.port = tk.StringVar(value=str(ServerConfig.DEFAULT_PORT))
         
         self.model_xgb = tk.StringVar(value="Not selected")
         self.model_lr = tk.StringVar(value="Not selected")
@@ -518,157 +433,149 @@ class SignalServerApp:
         banner_frame = tk.Frame(container, bg="#1a1a2e", width=120)
         banner_frame.pack(side='left', fill='y')
         banner_frame.pack_propagate(False)
-        banner_img = self.create_server_banner(width=120, height=650)
+        banner_img = self.create_server_banner(width=120, height=600)
         banner_photo = ImageTk.PhotoImage(banner_img)
         banner_label = tk.Label(banner_frame, image=banner_photo, bg="#1a1a2e")
         banner_label.image = banner_photo
         banner_label.pack(fill='both', expand=True)
         
         main_frame = tk.Frame(container, bg="#0f0f1e")
-        main_frame.pack(side='right', fill='both', expand=True, padx=5, pady=5)
+        main_frame.pack(side='right', fill='both', expand=True, padx=10, pady=10)
         
-        header_frame = tk.Frame(main_frame, bg="#0f0f1e")
-        header_frame.pack(fill='x', pady=(0, 5))
+        tk.Label(main_frame, text="SOLUNA FILE SERVER", bg="#0f0f1e", fg="#00ff88",
+                font=("Segoe UI", 16, "bold")).pack(pady=(0, 5))
         
-        tk.Label(header_frame, text="SOLUNA SIGNAL SERVER", bg="#0f0f1e", fg="#00ff88",
-                font=("Segoe UI", 14, "bold")).pack(anchor='w')
+        tk.Label(main_frame, text="File-Based Communication - No WebRequest needed", 
+                bg="#0f0f1e", fg="#888888", font=("Segoe UI", 9)).pack()
         
-        bridge_status = "WITH MT4/5 BRIDGE" if MT4_5_BRIDGE_ENABLED else "API ONLY"
-        tk.Label(header_frame, text=f"Real-time AI Trading Signal Provider - {bridge_status}", 
-                bg="#0f0f1e", fg="#888888", font=("Segoe UI", 7)).pack(anchor='w')
+        tk.Frame(main_frame, bg="#00ff88", height=2).pack(fill='x', pady=10)
         
-        tk.Frame(main_frame, bg="#00ff88", height=2).pack(fill='x', pady=(0, 5))
-        
-        # Model Configuration
-        model_card = self.create_card(main_frame, "⚙️ Model Configuration", expand=False)
-        model_inner = tk.Frame(model_card, bg="#1a1a2e")
-        model_inner.pack(fill='x', padx=5, pady=4)
+        # Models
+        model_frame = tk.LabelFrame(main_frame, text="⚙️ Models", bg="#1a1a2e", fg="#00ff88",
+                                    font=("Segoe UI", 10, "bold"))
+        model_frame.pack(fill='x', pady=5)
         
         models = [
-            ("XGB Model", self.model_xgb, "xgb", ".pkl"),
-            ("LR Model", self.model_lr, "lr", ".pkl"),
-            ("LSTM Model", self.model_lstm, "lstm", ".h5"),
+            ("XGB", self.model_xgb, "xgb", ".pkl"),
+            ("LR", self.model_lr, "lr", ".pkl"),
+            ("LSTM", self.model_lstm, "lstm", ".h5"),
             ("Scaler", self.model_scaler, "scaler", ".pkl"),
             ("Config", self.model_config, "config", ".json")
         ]
         
-        for i in range(0, len(models), 3):
-            row = tk.Frame(model_inner, bg="#1a1a2e")
-            row.pack(fill='x', pady=1)
+        # 2 columns layout
+        for i in range(0, len(models), 2):
+            row = tk.Frame(model_frame, bg="#1a1a2e")
+            row.pack(fill='x', padx=5, pady=2)
             
-            for j in range(3):
+            for j in range(2):
                 if i + j < len(models):
                     label, var, key, ext = models[i + j]
-                    self.create_compact_selector(row, label, var, key, ext)
+                    
+                    col = tk.Frame(row, bg="#1a1a2e")
+                    col.pack(side='left', fill='x', expand=True, padx=2)
+                    
+                    tk.Label(col, text=f"{label}:", bg="#1a1a2e", fg="#CCCCCC",
+                            width=8, anchor='w', font=("Segoe UI", 8)).pack(side='left')
+                    tk.Button(col, text="SELECT", command=lambda v=var, k=key, e=ext: self.select_model(v, k, e),
+                             bg="#4A90E2", fg="white", font=("Segoe UI", 7)).pack(side='left', padx=3)
+                    tk.Label(col, textvariable=var, bg="#1a1a2e", fg="#FFFFFF",
+                            anchor='w', font=("Segoe UI", 7)).pack(side='left', fill='x', expand=True)
         
-        # Server Settings
-        server_card = self.create_card(main_frame, "📡 Server Settings", expand=False)
-        server_inner = tk.Frame(server_card, bg="#1a1a2e")
-        server_inner.pack(fill='x', padx=5, pady=4)
+        # Info
+        info_frame = tk.LabelFrame(main_frame, text="🔗 Connection Info", bg="#1a1a2e", fg="#00ff88",
+                                   font=("Segoe UI", 10, "bold"))
+        info_frame.pack(fill='x', pady=5)
         
-        settings_row = tk.Frame(server_inner, bg="#1a1a2e")
-        settings_row.pack(fill='x', pady=1)
-        
-        for label, var in [("Host", self.host), ("Port", self.port)]:
-            col = tk.Frame(settings_row, bg="#1a1a2e")
-            col.pack(side='left', fill='x', expand=True, padx=1)
-            
-            tk.Label(col, text=label, bg="#1a1a2e", fg="#CCCCCC",
-                    font=("Segoe UI", 7, "bold"), anchor='w').pack(fill='x')
-            entry_bg = tk.Frame(col, bg="#2a2a3e")
-            entry_bg.pack(fill='x')
-            tk.Entry(entry_bg, textvariable=var, bg="#2a2a3e", fg="#FFFFFF",
-                    font=("Segoe UI", 7), relief="flat",
-                    insertbackground="#00ff88").pack(fill='x', padx=4, pady=2)
-        
-        # API Info
-        info_card = self.create_card(main_frame, "🔗 API Endpoints", expand=False)
-        info_inner = tk.Frame(info_card, bg="#1a1a2e")
-        info_inner.pack(fill='x', padx=5, pady=4)
-        
-        info_text = f"""POST /signal - Generate trading signal
-GET /health - Check server status
+        info_text = f"""Files will be stored in MT4/MT5 Common Files:
+{MT4_COMMON_PATH}
 
-MT4/5 Bridge: {'ENABLED ✅' if MT4_5_BRIDGE_ENABLED else 'DISABLED ❌'}
-Request Dir: {REQUEST_DIR if MT4_5_BRIDGE_ENABLED else 'N/A'}
-Response Dir: {RESPONSE_DIR if MT4_5_BRIDGE_ENABLED else 'N/A'}"""
+No network configuration needed.
+No WebRequest setup needed.
+Works with all MT4/MT5 versions."""
         
-        info_display = tk.Text(info_inner, bg="#0a0a14", fg="#00ff88",
-                              font=("Consolas", 8), height=6,
-                              relief="flat", borderwidth=0, wrap=tk.WORD)
-        info_display.insert("1.0", info_text)
-        info_display.configure(state='disabled')
-        info_display.pack(fill='x')
+        tk.Label(info_frame, text=info_text, bg="#1a1a2e", fg="#CCCCCC",
+                justify='left', font=("Consolas", 8)).pack(padx=10, pady=10)
         
         # Status
-        self.status_label = tk.Label(main_frame, text="⚫ Server Offline", 
+        self.status_label = tk.Label(main_frame, text="Server Offline", 
                                     bg="#0f0f1e", fg="#BF616A",
-                                    font=("Segoe UI", 9, "bold"))
-        self.status_label.pack(fill='x', pady=(4, 4))
+                                    font=("Segoe UI", 11, "bold"))
+        self.status_label.pack(pady=5)
         
-        # Control Buttons
+        # Buttons
         btn_frame = tk.Frame(main_frame, bg="#0f0f1e")
-        btn_frame.pack(fill='x', pady=(0, 4))
+        btn_frame.pack(fill='x', pady=5)
         
         self.start_btn = tk.Button(btn_frame, text="▶️ START SERVER",
                                    command=self.start_server,
                                    bg="#00ff88", fg="#0f0f1e",
-                                   font=("Segoe UI", 9, "bold"),
-                                   relief="flat", cursor="hand2",
-                                   padx=15, pady=5)
-        self.start_btn.pack(side='left', fill='x', expand=True, padx=(0, 2))
+                                   font=("Segoe UI", 10, "bold"),
+                                   padx=20, pady=8)
+        self.start_btn.pack(side='left', fill='x', expand=True, padx=(0, 5))
         
         self.stop_btn = tk.Button(btn_frame, text="⏹️ STOP SERVER",
                                   command=self.stop_server,
                                   bg="#BF616A", fg="white",
-                                  font=("Segoe UI", 9, "bold"),
-                                  relief="flat", cursor="hand2",
-                                  padx=15, pady=5, state=tk.DISABLED)
-        self.stop_btn.pack(side='right', fill='x', expand=True, padx=(2, 0))
+                                  font=("Segoe UI", 10, "bold"),
+                                  padx=20, pady=8, state=tk.DISABLED)
+        self.stop_btn.pack(side='right', fill='x', expand=True, padx=(5, 0))
         
-        # Log Console
-        log_card = self.create_card(main_frame, "🪧 Server Log", expand=True)
-        log_text = scrolledtext.ScrolledText(log_card, state='disabled', 
+        # Log
+        log_frame = tk.LabelFrame(main_frame, text="📡 Server Log", bg="#1a1a2e", fg="#00ff88",
+                                 font=("Segoe UI", 10, "bold"))
+        log_frame.pack(fill='both', expand=True, pady=5)
+        
+        log_text = scrolledtext.ScrolledText(log_frame, state='disabled', 
                                             bg="#0a0a14", fg="#00ff88", 
-                                            font=("Consolas", 8), 
-                                            relief="flat", borderwidth=0, wrap=tk.WORD, height=10)
-        log_text.pack(fill='both', expand=True, padx=4, pady=4)
+                                            font=("Consolas", 9), height=18)
+        log_text.pack(fill='both', expand=True, padx=5, pady=5)
         global_log_text = log_text
     
-    def create_card(self, parent, title, expand=True):
-        card = tk.Frame(parent, bg="#1a1a2e", relief="flat", bd=0)
-        card.pack(fill='both' if expand else 'x', expand=expand, pady=(0, 4))
+    def create_server_banner(self, width=120, height=600):
+        """Create server banner"""
+        img = Image.new('RGB', (width, height), '#1a1a2e')
+        draw = ImageDraw.Draw(img)
         
-        header = tk.Frame(card, bg="#2a2a3e")
-        header.pack(fill='x')
+        # Gradient background
+        for y in range(height):
+            ratio = y / height
+            r = int(26 + (46 - 26) * ratio)
+            g = int(26 + (139 - 26) * ratio)
+            b = int(46 + (87 - 46) * ratio)
+            draw.line([(0, y), (width, y)], fill=(r, g, b))
         
-        tk.Label(header, text=title, bg="#2a2a3e", fg="#00ff88",
-                font=("Segoe UI", 8, "bold")).pack(anchor='w', padx=6, pady=3)
+        # Server nodes
+        center_start = 240
+        for i in range(3):
+            y = center_start + i * 60
+            draw.rectangle([30, y, 90, y + 25], outline='#00ff88', width=2)
+            draw.ellipse([56, y + 8, 64, y + 16], fill='#FFD700')
         
-        return card
-    
-    def create_compact_selector(self, parent, label, var, key, ext):
-        col = tk.Frame(parent, bg="#1a1a2e")
-        col.pack(side='left', fill='x', expand=True, padx=1)
+        # Connections
+        for i in range(2):
+            y1 = center_start + 12 + i * 60
+            y2 = y1 + 60
+            draw.line([(60, y1 + 25), (60, y2)], fill='#4A90E2', width=2)
         
-        tk.Label(col, text=label, bg="#1a1a2e", fg="#CCCCCC",
-                font=("Segoe UI", 7, "bold"), anchor='w').pack(fill='x')
+        # Text
+        try:
+            title_font = ImageFont.truetype("arial.ttf", 20)
+            sub_font = ImageFont.truetype("arial.ttf", 10)
+        except:
+            title_font = ImageFont.load_default()
+            sub_font = ImageFont.load_default()
         
-        selector_frame = tk.Frame(col, bg="#2a2a3e")
-        selector_frame.pack(fill='x')
+        draw.text((width // 2, 35), "SOLUNA", fill='#00ff88', font=title_font, anchor="mm")
+        draw.text((width // 2, 60), "SERVER", fill='#FFFFFF', font=title_font, anchor="mm")
+        draw.text((width // 2, height - 35), "File-Based", fill='#CCCCCC', font=sub_font, anchor="mm")
+        draw.text((width // 2, height - 15), "No WebRequest", fill='#CCCCCC', font=sub_font, anchor="mm")
         
-        tk.Button(selector_frame, text="SELECT",
-                 command=lambda: self.select_model(var, key, ext),
-                 bg="#4A90E2", fg="white", font=("Segoe UI", 6, "bold"),
-                 relief="flat", cursor="hand2", padx=6, pady=2).pack(side='left', padx=(2,4), pady=2)
-
-        filename_label = tk.Label(selector_frame, textvariable=var, bg="#2a2a3e", fg="#FFFFFF",
-                                 font=("Segoe UI", 7), anchor='w', wraplength=150, justify='left')
-        filename_label.pack(side='left', fill='x', expand=True, padx=(0,2), pady=2)
+        return img
     
     def select_model(self, var, key, ext):
         file = filedialog.askopenfilename(
-            title=f"Select {key.upper()} File",
+            title=f"Select {key.upper()}",
             filetypes=((f"{ext} files", f"*{ext}"), ("All files", "*.*"))
         )
         if file:
@@ -679,97 +586,46 @@ Response Dir: {RESPONSE_DIR if MT4_5_BRIDGE_ENABLED else 'N/A'}"""
     def start_server(self):
         for key in ["xgb", "lr", "lstm", "scaler", "config"]:
             if not app_state["model_paths"][key]:
-                messagebox.showerror("Error", f"Please select {key.upper()} file")
+                messagebox.showerror("Error", f"Please select {key.upper()}")
                 return
         
-        log_terminal("Loading models and configuration...", status="INFO")
+        log_terminal("Loading models...", status="INFO")
         if not load_all_models():
-            messagebox.showerror("Error", "Failed to load models or config")
+            messagebox.showerror("Error", "Failed to load models")
             return
         
         try:
-            host = self.host.get()
-            port = int(self.port.get())
-            
-            # Start Flask Server
-            server = ServerThread(flask_app, host, port)
-            server.start()
-            
-            app_state["server_instance"] = server
+            bridge = threading.Thread(target=file_bridge_worker, daemon=True)
+            bridge.start()
+            app_state["bridge_instance"] = bridge
             app_state["is_server_running"] = True
             
-            # Start MT4/5 Bridge
-            if MT4_5_BRIDGE_ENABLED:
-                bridge = threading.Thread(target=mt4_bridge_worker, daemon=True)
-                bridge.start()
-                app_state["bridge_instance"] = bridge
-                log_terminal(f"MT4/5 Bridge monitoring: {REQUEST_DIR}", status="BRIDGE")
+            log_terminal("SERVER ONLINE", header=True)
             
-            log_terminal(f"SERVER ONLINE at http://{host}:{port}", header=True)
-            
-            self.status_label.config(text=f"🟢 Server Online - {host}:{port}", fg="#00ff88")
-            self.start_btn.config(state=tk.DISABLED, bg="#555555")
+            self.status_label.config(text="✅ Server Online", fg="#00ff88")
+            self.start_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.NORMAL)
             
-            bridge_msg = "\n\nMT4 Bridge: ACTIVE\nPlace .json in: " + REQUEST_DIR if MT4_5_BRIDGE_ENABLED else ""
-            
-            messagebox.showinfo("Success", f"Server running at http://{host}:{port}\n\n" +
-                              f"Config: RSI={app_state['training_config']['RSI_PERIOD']}, " +
-                              f"TF={app_state['training_config']['TIMEFRAME']}" + bridge_msg)
+            messagebox.showinfo("Success", 
+                              f"✅ Server running!\n\n"
+                              f"📂 Files location:\n{MT4_COMMON_PATH}\n\n"
+                              f"No WebRequest setup needed!")
             
         except Exception as e:
-            log_terminal(f"Server start failed: {e}", status="ERROR")
+            log_terminal(f"Start failed: {e}", status="ERROR")
             messagebox.showerror("Error", str(e))
     
     def stop_server(self):
-        if app_state["server_instance"]:
-            app_state["is_server_running"] = False
-            time.sleep(1)
-            
-            app_state["server_instance"].shutdown()
-            log_terminal("SERVER STOPPED", header=True)
-            
-            self.status_label.config(text="⚫ Server Offline", fg="#BF616A")
-            self.start_btn.config(state=tk.NORMAL, bg="#00ff88")
-            self.stop_btn.config(state=tk.DISABLED)
-            
-            messagebox.showinfo("Stopped", "Server stopped")
-    
-    def create_server_banner(self, width=120, height=650):
-        img = Image.new('RGB', (width, height), '#1a1a2e')
-        draw = ImageDraw.Draw(img)
+        app_state["is_server_running"] = False
+        time.sleep(1)
         
-        for y in range(height):
-            ratio = y / height
-            r = int(26 + (46 - 26) * ratio)
-            g = int(26 + (139 - 26) * ratio)
-            b = int(46 + (87 - 46) * ratio)
-            draw.line([(0, y), (width, y)], fill=(r, g, b))
+        log_terminal("SERVER STOPPED", header=True)
         
-        center_start = 260
-        for i in range(3):
-            y = center_start + i * 60
-            draw.rectangle([30, y, 90, y + 25], outline='#00ff88', width=2)
-            draw.ellipse([56, y + 8, 64, y + 16], fill='#FFD700')
+        self.status_label.config(text="⚫ Server Offline", fg="#BF616A")
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
         
-        for i in range(2):
-            y1 = center_start + 12 + i * 60
-            y2 = y1 + 60
-            draw.line([(60, y1 + 25), (60, y2)], fill='#4A90E2', width=2)
-        
-        try:
-            title_font = ImageFont.truetype("arial.ttf", 20)
-            sub_font = ImageFont.truetype("arial.ttf", 10)
-        except:
-            title_font = ImageFont.load_default()
-            sub_font = ImageFont.load_default()
-        
-        draw.text((width // 2, 35), "SOLUNA", fill='#00ff88', font=title_font, anchor="mm")
-        draw.text((width // 2, 60), "SERVER", fill='#FFFFFF', font=title_font, anchor="mm")
-        draw.text((width // 2, height - 35), "Signal API", fill='#CCCCCC', font=sub_font, anchor="mm")
-        draw.text((width // 2, height - 15), "MT4/5 Bridge", fill='#CCCCCC', font=sub_font, anchor="mm")
-        
-        return img
+        messagebox.showinfo("Stopped", "Server stopped")
 
 if __name__ == '__main__':
     root = tk.Tk()

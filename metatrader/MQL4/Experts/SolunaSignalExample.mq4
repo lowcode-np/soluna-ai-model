@@ -1,81 +1,81 @@
 //+------------------------------------------------------------------+
 //|                                         SolunaSignalExample.mq4  |
-//|                                  Example EA using Soluna Signal  |
-//|                                  File-based version (No WebReq)  |
+//|                              File-Based - No WebRequest Needed   |
 //+------------------------------------------------------------------+
 #property copyright "Soluna AI"
-#property version   "2.00"
+#property version   "4.00"
 #property strict
 
 #include <SolunaSignalClient.mqh>
 
 //--- Input parameters
-input int      CandleCount = 500;            // Number of candles to send
-input int      SignalInterval = 60;          // Check signal every N seconds
-input bool     EnableTrading = false;        // Enable automatic trading
-input double   LotSize = 0.01;               // Lot size for trading
+input int      CandleCount = 500;            // Number of candles
+input int      SignalInterval = 60;          // Check every N seconds
+input bool     EnableTrading = false;        // Enable auto-trading
+input double   LotSize = 0.01;               // Lot size
 
 //--- Global variables
 CSolunaSignalClient g_client;
 datetime g_last_check = 0;
 
 //+------------------------------------------------------------------+
-//| Expert initialization function                                    |
+//| Expert initialization                                            |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Initialize client (File-based - no server config needed)
    g_client.SetMinCandles(300);
-   g_client.SetTimeout(30);  // seconds
+   g_client.SetTimeout(30);
    
-   // Check if file system is ready
-   Print("Checking file system...");
+   Print("========================================");
+   Print("Soluna AI - File-Based Mode");
+   Print("========================================");
+   Print("No WebRequest configuration needed!");
+   Print("Files stored in Common/Files");
+   Print("");
+   
    if(g_client.CheckHealth())
    {
-      Print("✅ File system OK - Python bridge ready!");
-      Print("📂 Request: C:\\MT4Bridge\\requests\\");
-      Print("📂 Response: C:\\MT4Bridge\\responses\\");
+      Print("File system OK");
+      Print("Make sure server.py is running");
+      Print("Ready to receive signals");
    }
    else
    {
-      Print("❌ Failed: ", g_client.GetLastError());
-      Print("⚠️  Make sure C:\\MT4Bridge\\ folder exists!");
-      Print("⚠️  Make sure Python server is running!");
+      Print("ERROR: ", g_client.GetLastError());
+      Print("Check Common/Files accessibility");
    }
+   
+   Print("========================================");
    
    return(INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
+//| Expert deinitialization                                         |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   Print("Soluna Signal EA stopped");
+   Print("EA stopped");
 }
 
 //+------------------------------------------------------------------+
-//| Expert tick function                                             |
+//| Expert tick function                                            |
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Check if it's time to get new signal
    if(TimeCurrent() - g_last_check < SignalInterval)
       return;
    
    g_last_check = TimeCurrent();
    
-   // Get signal
    SolunaSignal signal;
    
-   Print("📤 Requesting signal from Soluna AI...");
+   Print("Requesting signal...");
    
    if(g_client.GetSignal(_Symbol, PERIOD_CURRENT, CandleCount, signal))
    {
-      // Signal received successfully
       PrintSignal(signal);
       
-      // Execute trade if enabled
       if(EnableTrading)
       {
          ExecuteTrade(signal);
@@ -83,57 +83,46 @@ void OnTick()
    }
    else
    {
-      Print("❌ Failed to get signal: ", g_client.GetLastError());
+      Print("Failed: ", g_client.GetLastError());
    }
 }
 
 //+------------------------------------------------------------------+
-//| Print signal information                                         |
+//| Print signal                                                     |
 //+------------------------------------------------------------------+
 void PrintSignal(SolunaSignal &signal)
 {
    Print("========================================");
-   Print("📡 Soluna AI Signal Received");
+   Print("SIGNAL RECEIVED");
    Print("========================================");
-   Print("Timestamp:   ", signal.timestamp);
-   Print("Signal:      ", signal.signal);
-   Print("Confidence:  ", signal.confidence);
-   Print("Price:       ", DoubleToString(signal.price, _Digits));
+   Print("Time:       ", signal.timestamp);
+   Print("Signal:     ", signal.signal);
+   Print("Confidence: ", signal.confidence);
+   Print("Price:      ", DoubleToString(signal.price, _Digits));
    Print("----------------------------------------");
-   Print("Model Votes:");
-   Print("  XGBoost:   ", signal.xgb_signal);
-   Print("  Logistic:  ", signal.lr_signal);
-   Print("  LSTM:      ", signal.lstm_signal);
+   Print("XGBoost:    ", signal.xgb_signal);
+   Print("Logistic:   ", signal.lr_signal);
+   Print("LSTM:       ", signal.lstm_signal);
    Print("========================================");
 }
 
 //+------------------------------------------------------------------+
-//| Execute trade based on signal                                    |
+//| Execute trade                                                    |
 //+------------------------------------------------------------------+
 void ExecuteTrade(SolunaSignal &signal)
 {
-   // Check if we already have an open position
-   #ifdef __MQL5__
-      if(PositionSelect(_Symbol))
+   if(OrdersTotal() > 0)
+   {
+      for(int i = 0; i < OrdersTotal(); i++)
       {
-         Print("⚠️  Position already open, skipping trade");
-         return;
-      }
-   #else
-      if(OrdersTotal() > 0)
-      {
-         for(int i = 0; i < OrdersTotal(); i++)
+         if(OrderSelect(i, SELECT_BY_POS) && OrderSymbol() == _Symbol)
          {
-            if(OrderSelect(i, SELECT_BY_POS) && OrderSymbol() == _Symbol)
-            {
-               Print("⚠️  Order already exists, skipping trade");
-               return;
-            }
+            Print("Order exists, skipping");
+            return;
          }
       }
-   #endif
+   }
    
-   // Execute based on signal
    if(signal.signal == "BUY")
    {
       OpenBuy(signal);
@@ -144,90 +133,44 @@ void ExecuteTrade(SolunaSignal &signal)
    }
    else
    {
-      Print("ℹ️  Signal is NEUTRAL, no trade executed");
+      Print("NEUTRAL signal, no trade");
    }
 }
 
 //+------------------------------------------------------------------+
-//| Open Buy position                                                |
+//| Open Buy                                                         |
 //+------------------------------------------------------------------+
 void OpenBuy(SolunaSignal &signal)
 {
-   #ifdef __MQL5__
-      MqlTradeRequest request = {};
-      MqlTradeResult result = {};
-      
-      request.action = TRADE_ACTION_DEAL;
-      request.symbol = _Symbol;
-      request.volume = LotSize;
-      request.type = ORDER_TYPE_BUY;
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      request.deviation = 10;
-      request.magic = 123456;
-      request.comment = "Soluna AI BUY - " + signal.confidence;
-      
-      if(OrderSend(request, result))
-      {
-         Print("✅ BUY order placed successfully! Ticket: ", result.order);
-      }
-      else
-      {
-         Print("❌ BUY order failed: ", result.comment);
-      }
-   #else
-      double ask = MarketInfo(_Symbol, MODE_ASK);
-      int ticket = OrderSend(_Symbol, OP_BUY, LotSize, ask, 10, 0, 0, 
-                            "Soluna AI BUY - " + signal.confidence, 123456, 0, clrGreen);
-      
-      if(ticket > 0)
-      {
-         Print("✅ BUY order placed successfully! Ticket: ", ticket);
-      }
-      else
-      {
-         Print("❌ BUY order failed: ", GetLastError());
-      }
-   #endif
+   double ask = MarketInfo(_Symbol, MODE_ASK);
+   int ticket = OrderSend(_Symbol, OP_BUY, LotSize, ask, 10, 0, 0, 
+                         "Soluna " + signal.confidence, 123456, 0, clrGreen);
+   
+   if(ticket > 0)
+   {
+      Print("BUY order: ", ticket);
+   }
+   else
+   {
+      Print("BUY failed: ", GetLastError());
+   }
 }
 
 //+------------------------------------------------------------------+
-//| Open Sell position                                               |
+//| Open Sell                                                        |
 //+------------------------------------------------------------------+
 void OpenSell(SolunaSignal &signal)
 {
-   #ifdef __MQL5__
-      MqlTradeRequest request = {};
-      MqlTradeResult result = {};
-      
-      request.action = TRADE_ACTION_DEAL;
-      request.symbol = _Symbol;
-      request.volume = LotSize;
-      request.type = ORDER_TYPE_SELL;
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      request.deviation = 10;
-      request.magic = 123456;
-      request.comment = "Soluna AI SELL - " + signal.confidence;
-      
-      if(OrderSend(request, result))
-      {
-         Print("✅ SELL order placed successfully! Ticket: ", result.order);
-      }
-      else
-      {
-         Print("❌ SELL order failed: ", result.comment);
-      }
-   #else
-      double bid = MarketInfo(_Symbol, MODE_BID);
-      int ticket = OrderSend(_Symbol, OP_SELL, LotSize, bid, 10, 0, 0,
-                            "Soluna AI SELL - " + signal.confidence, 123456, 0, clrRed);
-      
-      if(ticket > 0)
-      {
-         Print("✅ SELL order placed successfully! Ticket: ", ticket);
-      }
-      else
-      {
-         Print("❌ SELL order failed: ", GetLastError());
-      }
-   #endif
+   double bid = MarketInfo(_Symbol, MODE_BID);
+   int ticket = OrderSend(_Symbol, OP_SELL, LotSize, bid, 10, 0, 0,
+                         "Soluna " + signal.confidence, 123456, 0, clrRed);
+   
+   if(ticket > 0)
+   {
+      Print("SELL order: ", ticket);
+   }
+   else
+   {
+      Print("SELL failed: ", GetLastError());
+   }
 }
