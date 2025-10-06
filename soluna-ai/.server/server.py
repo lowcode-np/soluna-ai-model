@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Soluna AI: Signal Server with Training Config Support and Emoji Logging
+# Soluna AI: Signal Server with Integrated MT4/5 File Bridge
 
 import os
 import sys
@@ -23,6 +23,17 @@ from tensorflow.keras.models import load_model
 from flask import Flask, jsonify, request
 from werkzeug.serving import make_server
 import logging
+
+# =============== MT4/5 BRIDGE CONFIGURATION ===============
+MT4_5_BRIDGE_ENABLED = True
+REQUEST_DIR = "C:/MTBridge/requests"
+RESPONSE_DIR = "C:/MTBridge/responses"
+BRIDGE_CHECK_INTERVAL = 0.5
+
+# สร้างโฟลเดอร์สำหรับ Bridge
+if MT4_5_BRIDGE_ENABLED:
+    os.makedirs(REQUEST_DIR, exist_ok=True)
+    os.makedirs(RESPONSE_DIR, exist_ok=True)
 
 # --- Splash Screen Class ---
 class SplashScreen:
@@ -66,10 +77,8 @@ class SplashScreen:
 
     def _animate(self):
         if self.current_step <= self.total_steps:
-            # อัปเดต Progress Bar
             self.progress['value'] = self.current_step * self.progress_increment
             
-            # อัปเดตข้อความตามความคืบหน้า
             progress_percent = (self.current_step / self.total_steps) * 100
             if progress_percent < 40:
                 self.status_label.config(text="Initializing components...")
@@ -103,6 +112,7 @@ app_state = {
     "latest_signal": {"status": "Waiting for data...", "signal": "NEUTRAL"},
     "is_server_running": False,
     "server_instance": None,
+    "bridge_instance": None,  # MT4/5 Bridge thread
     "models": {},
     "scaler": None,
     "training_config": None,
@@ -122,7 +132,8 @@ EMOJI_MAP = {
     "INFO": "ℹ️",
     "SUCCESS": "✅",
     "ERROR": "❌",
-    "SIGNAL": "📡"
+    "SIGNAL": "📡",
+    "BRIDGE": "🔄"
 }
 
 # --- Logging ---
@@ -148,7 +159,7 @@ def log_terminal(message, status="INFO", header=False):
         except:
             pass
 
-# --- Technical Indicators (Using Training Config) ---
+# --- Technical Indicators ---
 def get_atr(high, low, close, n=14):
     tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
     return tr.ewm(alpha=1/n, adjust=False).mean()
@@ -191,23 +202,19 @@ def get_bollinger_bands(close, n=20, std=2):
     lower = sma - (std_dev * std)
     return upper, sma, lower
 
-# --- Feature Creation (Using Training Config) ---
+# --- Feature Creation ---
 def create_gold_features_from_config(df_raw, config):
-    """Create features using the same parameters as training"""
     df = df_raw.copy()
     open, high, low, close, volume = df['Open'], df['High'], df['Low'], df['Close'], df['Volume']
 
-    # Moving Averages (use training config)
     df['SMA_10'] = close.rolling(window=config['SMA_SHORT']).mean()
     df['SMA_50'] = close.rolling(window=config['SMA_MEDIUM']).mean()
     df['SMA_200'] = close.rolling(window=config['SMA_LONG']).mean()
     df['EMA_12'] = close.ewm(span=config['EMA_FAST']).mean()
     df['EMA_26'] = close.ewm(span=config['EMA_SLOW']).mean()
     
-    # Directional Indicators
     df['adx'], df['plus_di'], df['minus_di'] = get_adx(high, low, close, n=config['ADX_PERIOD'])
 
-    # Ichimoku Cloud
     tenkan_sen = (high.rolling(window=9).max() + low.rolling(window=9).min()) / 2
     kijun_sen = (high.rolling(window=26).max() + low.rolling(window=26).min()) / 2
     senkou_span_a = ((tenkan_sen + kijun_sen) / 2).shift(26)
@@ -216,7 +223,6 @@ def create_gold_features_from_config(df_raw, config):
     df['price_below_kumo'] = np.where((close < senkou_span_a) & (close < senkou_span_b), 1, 0)
     df['tenkan_cross_kijun'] = np.sign(tenkan_sen - kijun_sen)
 
-    # Momentum Indicators (use training config)
     df['rsi'] = get_rsi(close, n=config['RSI_PERIOD'])
     df['macd'], df['macd_signal'] = get_macd(close, fast=config['MACD_FAST'], 
                                               slow=config['MACD_SLOW'], 
@@ -225,7 +231,6 @@ def create_gold_features_from_config(df_raw, config):
     df['ROC'] = ((close - close.shift(10)) / close.shift(10)) * 100
     df['Momentum_5'] = close - close.shift(5)
 
-    # Volatility Indicators (use training config)
     atr = get_atr(high, low, close, n=config['ATR_PERIOD'])
     df['atr'] = atr
     bb_upper, bb_middle, bb_lower = get_bollinger_bands(close, n=config['BB_PERIOD'], 
@@ -233,13 +238,11 @@ def create_gold_features_from_config(df_raw, config):
     df['bb_width'] = (bb_upper - bb_lower) / bb_middle
     df['bb_position'] = (close - bb_lower) / (bb_upper - bb_lower)
 
-    # Volume Analysis
     df['obv'] = (np.sign(close.diff()) * volume).fillna(0).cumsum()
     df['obv_sma_20'] = df['obv'].rolling(window=20).mean()
     df['Volume_SMA_20'] = volume.rolling(window=20).mean()
     df['Volume_Ratio'] = volume / df['Volume_SMA_20'].replace(0, np.nan)
 
-    # Candlestick Patterns
     candle_range = high - low
     body_size = abs(close - open)
     df['body_to_range_ratio'] = body_size / candle_range
@@ -255,14 +258,12 @@ def create_gold_features_from_config(df_raw, config):
     df['is_bearish_engulfing'] = ((close < open) & (prev_close > prev_open) & 
                                   (close < prev_open) & (open > prev_close)).astype(int)
     
-    # Price Distance Features
     df['dist_from_20h_high'] = (close - high.rolling(window=20).max()) / atr
     df['dist_from_20h_low'] = (close - low.rolling(window=20).min()) / atr
 
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df.dropna(inplace=True)
 
-    # Use feature names from training config
     feature_cols = config['FEATURE_NAMES']
     
     return df, feature_cols
@@ -272,22 +273,15 @@ def load_all_models():
     try:
         paths = app_state["model_paths"]
         
-        # Check all required files
         for key in ["xgb", "lr", "lstm", "scaler", "config"]:
             if not paths[key] or not os.path.exists(paths[key]):
                 raise FileNotFoundError(f"Missing {key.upper()} file")
         
-        # Load training configuration first
         with open(paths["config"], 'r') as f:
             app_state["training_config"] = json.load(f)
         log_terminal(f"Training config loaded", status="SUCCESS")
         log_terminal(f"  → RSI Period: {app_state['training_config']['RSI_PERIOD']}", status="INFO")
-        log_terminal(f"  → SMA Periods: {app_state['training_config']['SMA_SHORT']}, " +
-                    f"{app_state['training_config']['SMA_MEDIUM']}, " +
-                    f"{app_state['training_config']['SMA_LONG']}", status="INFO")
-        log_terminal(f"  → LSTM Sequence: {app_state['training_config']['LSTM_SEQ_LEN']}", status="INFO")
         
-        # Load models
         app_state["scaler"] = joblib.load(paths["scaler"])
         app_state["models"]["xgb"] = joblib.load(paths["xgb"])
         app_state["models"]["lr"] = joblib.load(paths["lr"])
@@ -316,7 +310,6 @@ def generate_signal(historical_data):
         df = df.set_index('time')
         df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
         
-        # Use config-based feature creation
         df_features, feature_cols = create_gold_features_from_config(df, config)
         
         lstm_seq_len = config['LSTM_SEQ_LEN']
@@ -353,11 +346,7 @@ def generate_signal(historical_data):
                 "lstm": signal_map[pred_lstm]
             },
             "confidence": f"{votes.count(final_prediction)/3:.0%}",
-            "price": float(df['Close'].iloc[-1]),
-            "config_used": {
-                "rsi_period": config['RSI_PERIOD'],
-                "timeframe": config['TIMEFRAME']
-            }
+            "price": float(df['Close'].iloc[-1])
         }
         
         app_state["latest_signal"] = result
@@ -371,6 +360,77 @@ def generate_signal(historical_data):
         traceback.print_exc()
         return {"error": str(e)}
 
+# =============== MT4/5 FILE BRIDGE ===============
+def mt4_bridge_worker():
+    """รัน MT4/5 File Bridge ใน background thread"""
+    log_terminal("MT4/5 Bridge started", status="BRIDGE")
+    processed = set()
+    
+    while app_state["is_server_running"]:
+        try:
+            # สแกนไฟล์ request
+            if not os.path.exists(REQUEST_DIR):
+                time.sleep(1)
+                continue
+                
+            for filename in os.listdir(REQUEST_DIR):
+                if not filename.endswith('.json'):
+                    continue
+                    
+                if filename in processed:
+                    continue
+                
+                filepath = os.path.join(REQUEST_DIR, filename)
+                
+                try:
+                    # อ่าน request
+                    time.sleep(0.1)  # รอให้เขียนไฟล์เสร็จ
+                    
+                    with open(filepath, 'r') as f:
+                        data = json.load(f)
+                    
+                    request_id = filename.replace('.json', '')
+                    log_terminal(f"MT4/5 request: {request_id}", status="BRIDGE")
+                    
+                    # สร้าง signal
+                    result = generate_signal(data['candles'])
+                    
+                    # เขียน response
+                    response_file = os.path.join(RESPONSE_DIR, filename)
+                    with open(response_file, 'w') as f:
+                        json.dump(result, f)
+                    
+                    # ลบ request file
+                    os.remove(filepath)
+                    processed.add(filename)
+                    
+                    log_terminal(f"Response sent: {result.get('signal', 'ERROR')}", status="BRIDGE")
+                    
+                except Exception as e:
+                    log_terminal(f"Bridge error: {e}", status="ERROR")
+                    
+                    # เขียน error response
+                    try:
+                        error_data = {"error": str(e)}
+                        response_file = os.path.join(RESPONSE_DIR, filename)
+                        with open(response_file, 'w') as f:
+                            json.dump(error_data, f)
+                        os.remove(filepath)
+                    except:
+                        pass
+            
+            # เคลียร์ processed
+            if len(processed) > 100:
+                processed.clear()
+            
+            time.sleep(BRIDGE_CHECK_INTERVAL)
+            
+        except Exception as e:
+            log_terminal(f"Bridge loop error: {e}", status="ERROR")
+            time.sleep(2)
+    
+    log_terminal("MT4/5 Bridge stopped", status="BRIDGE")
+
 # --- Flask Server ---
 flask_app = Flask(__name__)
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
@@ -380,7 +440,8 @@ def health_check():
     return jsonify({
         "status": "running" if app_state["is_server_running"] else "stopped",
         "models_loaded": len(app_state["models"]) > 0,
-        "config_loaded": app_state["training_config"] is not None
+        "config_loaded": app_state["training_config"] is not None,
+        "mt4_bridge": MT4_5_BRIDGE_ENABLED
     })
 
 @flask_app.route('/signal', methods=['POST'])
@@ -453,7 +514,7 @@ class SignalServerApp:
         container = tk.Frame(self.root, bg="#0f0f1e")
         container.pack(fill='both', expand=True)
         
-        # Banner Frame
+        # Banner
         banner_frame = tk.Frame(container, bg="#1a1a2e", width=120)
         banner_frame.pack(side='left', fill='y')
         banner_frame.pack_propagate(False)
@@ -471,13 +532,15 @@ class SignalServerApp:
         
         tk.Label(header_frame, text="SOLUNA SIGNAL SERVER", bg="#0f0f1e", fg="#00ff88",
                 font=("Segoe UI", 14, "bold")).pack(anchor='w')
-        tk.Label(header_frame, text="Real-time AI Trading Signal Provider", 
+        
+        bridge_status = "WITH MT4/5 BRIDGE" if MT4_5_BRIDGE_ENABLED else "API ONLY"
+        tk.Label(header_frame, text=f"Real-time AI Trading Signal Provider - {bridge_status}", 
                 bg="#0f0f1e", fg="#888888", font=("Segoe UI", 7)).pack(anchor='w')
         
         tk.Frame(main_frame, bg="#00ff88", height=2).pack(fill='x', pady=(0, 5))
         
-        # Model Configuration Card
-        model_card = self.create_card(main_frame, "⚙️Model Configuration", expand=False)
+        # Model Configuration
+        model_card = self.create_card(main_frame, "⚙️ Model Configuration", expand=False)
         model_inner = tk.Frame(model_card, bg="#1a1a2e")
         model_inner.pack(fill='x', padx=5, pady=4)
         
@@ -498,8 +561,8 @@ class SignalServerApp:
                     label, var, key, ext = models[i + j]
                     self.create_compact_selector(row, label, var, key, ext)
         
-        # Server Settings Card
-        server_card = self.create_card(main_frame, "📡Server Settings", expand=False)
+        # Server Settings
+        server_card = self.create_card(main_frame, "📡 Server Settings", expand=False)
         server_inner = tk.Frame(server_card, bg="#1a1a2e")
         server_inner.pack(fill='x', padx=5, pady=4)
         
@@ -518,22 +581,20 @@ class SignalServerApp:
                     font=("Segoe UI", 7), relief="flat",
                     insertbackground="#00ff88").pack(fill='x', padx=4, pady=2)
         
-        # API Info Card
-        info_card = self.create_card(main_frame, "🔗API Endpoints", expand=False)
+        # API Info
+        info_card = self.create_card(main_frame, "🔗 API Endpoints", expand=False)
         info_inner = tk.Frame(info_card, bg="#1a1a2e")
         info_inner.pack(fill='x', padx=5, pady=4)
         
-        info_text = """POST /signal - Generate trading signal
-Body: {"candles": [{"time": "2025-01-01 00:00", "open": 2050.0, 
-      "high": 2055.0, "low": 2048.0, "close": 2052.0, "volume": 1000}, ...]}
-Response: {"signal": "BUY|SELL|NEUTRAL", "confidence": "67%", 
-           "price": 2650.50, "config_used": {...}}
-
+        info_text = f"""POST /signal - Generate trading signal
 GET /health - Check server status
-Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
+
+MT4/5 Bridge: {'ENABLED ✅' if MT4_5_BRIDGE_ENABLED else 'DISABLED ❌'}
+Request Dir: {REQUEST_DIR if MT4_5_BRIDGE_ENABLED else 'N/A'}
+Response Dir: {RESPONSE_DIR if MT4_5_BRIDGE_ENABLED else 'N/A'}"""
         
         info_display = tk.Text(info_inner, bg="#0a0a14", fg="#00ff88",
-                              font=("Consolas", 8), height=7,
+                              font=("Consolas", 8), height=6,
                               relief="flat", borderwidth=0, wrap=tk.WORD)
         info_display.insert("1.0", info_text)
         info_display.configure(state='disabled')
@@ -549,7 +610,7 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
         btn_frame = tk.Frame(main_frame, bg="#0f0f1e")
         btn_frame.pack(fill='x', pady=(0, 4))
         
-        self.start_btn = tk.Button(btn_frame, text="▶️START SERVER",
+        self.start_btn = tk.Button(btn_frame, text="▶️ START SERVER",
                                    command=self.start_server,
                                    bg="#00ff88", fg="#0f0f1e",
                                    font=("Segoe UI", 9, "bold"),
@@ -557,7 +618,7 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
                                    padx=15, pady=5)
         self.start_btn.pack(side='left', fill='x', expand=True, padx=(0, 2))
         
-        self.stop_btn = tk.Button(btn_frame, text="⏹️STOP SERVER",
+        self.stop_btn = tk.Button(btn_frame, text="⏹️ STOP SERVER",
                                   command=self.stop_server,
                                   bg="#BF616A", fg="white",
                                   font=("Segoe UI", 9, "bold"),
@@ -566,7 +627,7 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
         self.stop_btn.pack(side='right', fill='x', expand=True, padx=(2, 0))
         
         # Log Console
-        log_card = self.create_card(main_frame, "🪧Server Log", expand=True)
+        log_card = self.create_card(main_frame, "🪧 Server Log", expand=True)
         log_text = scrolledtext.ScrolledText(log_card, state='disabled', 
                                             bg="#0a0a14", fg="#00ff88", 
                                             font=("Consolas", 8), 
@@ -630,11 +691,19 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
             host = self.host.get()
             port = int(self.port.get())
             
+            # Start Flask Server
             server = ServerThread(flask_app, host, port)
             server.start()
             
             app_state["server_instance"] = server
             app_state["is_server_running"] = True
+            
+            # Start MT4/5 Bridge
+            if MT4_5_BRIDGE_ENABLED:
+                bridge = threading.Thread(target=mt4_bridge_worker, daemon=True)
+                bridge.start()
+                app_state["bridge_instance"] = bridge
+                log_terminal(f"MT4/5 Bridge monitoring: {REQUEST_DIR}", status="BRIDGE")
             
             log_terminal(f"SERVER ONLINE at http://{host}:{port}", header=True)
             
@@ -642,10 +711,11 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
             self.start_btn.config(state=tk.DISABLED, bg="#555555")
             self.stop_btn.config(state=tk.NORMAL)
             
+            bridge_msg = "\n\nMT4 Bridge: ACTIVE\nPlace .json in: " + REQUEST_DIR if MT4_5_BRIDGE_ENABLED else ""
+            
             messagebox.showinfo("Success", f"Server running at http://{host}:{port}\n\n" +
-                              f"Using training config:\n" +
-                              f"- RSI: {app_state['training_config']['RSI_PERIOD']}\n" +
-                              f"- Timeframe: {app_state['training_config']['TIMEFRAME']}")
+                              f"Config: RSI={app_state['training_config']['RSI_PERIOD']}, " +
+                              f"TF={app_state['training_config']['TIMEFRAME']}" + bridge_msg)
             
         except Exception as e:
             log_terminal(f"Server start failed: {e}", status="ERROR")
@@ -653,22 +723,22 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
     
     def stop_server(self):
         if app_state["server_instance"]:
-            app_state["server_instance"].shutdown()
             app_state["is_server_running"] = False
+            time.sleep(1)
+            
+            app_state["server_instance"].shutdown()
             log_terminal("SERVER STOPPED", header=True)
             
             self.status_label.config(text="⚫ Server Offline", fg="#BF616A")
             self.start_btn.config(state=tk.NORMAL, bg="#00ff88")
             self.stop_btn.config(state=tk.DISABLED)
             
-            messagebox.showinfo("Stopped", "Server stopped successfully")
+            messagebox.showinfo("Stopped", "Server stopped")
     
     def create_server_banner(self, width=120, height=650):
-        """Creates server banner image."""
         img = Image.new('RGB', (width, height), '#1a1a2e')
         draw = ImageDraw.Draw(img)
         
-        # Gradient
         for y in range(height):
             ratio = y / height
             r = int(26 + (46 - 26) * ratio)
@@ -676,20 +746,17 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
             b = int(46 + (87 - 46) * ratio)
             draw.line([(0, y), (width, y)], fill=(r, g, b))
         
-        # Server nodes - centered
         center_start = 260
         for i in range(3):
             y = center_start + i * 60
             draw.rectangle([30, y, 90, y + 25], outline='#00ff88', width=2)
             draw.ellipse([56, y + 8, 64, y + 16], fill='#FFD700')
         
-        # Connections
         for i in range(2):
             y1 = center_start + 12 + i * 60
             y2 = y1 + 60
             draw.line([(60, y1 + 25), (60, y2)], fill='#4A90E2', width=2)
         
-        # Text
         try:
             title_font = ImageFont.truetype("arial.ttf", 20)
             sub_font = ImageFont.truetype("arial.ttf", 10)
@@ -700,13 +767,9 @@ Response: {"status": "running", "models_loaded": true, "config_loaded": true}"""
         draw.text((width // 2, 35), "SOLUNA", fill='#00ff88', font=title_font, anchor="mm")
         draw.text((width // 2, 60), "SERVER", fill='#FFFFFF', font=title_font, anchor="mm")
         draw.text((width // 2, height - 35), "Signal API", fill='#CCCCCC', font=sub_font, anchor="mm")
-        draw.text((width // 2, height - 15), "Real-time Trading", fill='#CCCCCC', font=sub_font, anchor="mm")
+        draw.text((width // 2, height - 15), "MT4/5 Bridge", fill='#CCCCCC', font=sub_font, anchor="mm")
         
         return img
-
-# =============================================================================
-# 7. APPLICATION ENTRY POINT
-# =============================================================================
 
 if __name__ == '__main__':
     root = tk.Tk()
@@ -716,8 +779,8 @@ if __name__ == '__main__':
         root.iconbitmap(".icon/server.ico")
     except:
         pass
-    app = SignalServerApp(root)
     
+    app = SignalServerApp(root)
     splash = SplashScreen(root, duration_seconds=5)
     splash.start()
     
