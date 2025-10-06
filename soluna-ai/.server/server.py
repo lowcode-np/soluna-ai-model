@@ -348,64 +348,106 @@ def generate_signal(historical_data):
 
 # =============== FILE BRIDGE ===============
 def file_bridge_worker():
-    log_terminal("File Bridge started", status="FILE")
+    log_terminal("File Bridge started (Multi-Terminal Support)", status="FILE")
     log_terminal(f"Monitoring: {REQUEST_DIR}", status="FILE")
-    processed = set()
+    processed = {}
+    processing = set()
     
     while app_state["is_server_running"]:
         try:
             if not os.path.exists(REQUEST_DIR):
                 time.sleep(1)
                 continue
+            
+            for item in os.listdir(REQUEST_DIR):
+                terminal_path = os.path.join(REQUEST_DIR, item)
                 
-            for filename in os.listdir(REQUEST_DIR):
-                if not filename.endswith('.json') or filename in processed:
+                if not os.path.isdir(terminal_path):
                     continue
                 
-                filepath = os.path.join(REQUEST_DIR, filename)
+                terminal_id = item
+                terminal_res_dir = os.path.join(RESPONSE_DIR, terminal_id)
+                
+                os.makedirs(terminal_res_dir, exist_ok=True)
+                
+                if terminal_id not in processed:
+                    processed[terminal_id] = set()
                 
                 try:
-                    time.sleep(0.1)
+                    files = os.listdir(terminal_path)
+                except:
+                    continue
+                
+                for filename in files:
+                    if not filename.endswith('.json'):
+                        continue
                     
-                    with open(filepath, 'r') as f:
-                        data = json.load(f)
+                    file_key = f"{terminal_id}/{filename}"
                     
-                    request_id = filename.replace('.json', '')
-                    log_terminal(f"Request: {request_id}", status="FILE")
+                    if filename in processed[terminal_id] or file_key in processing:
+                        continue
                     
-                    result = generate_signal(data['candles'])
+                    filepath = os.path.join(terminal_path, filename)
                     
-                    response_file = os.path.join(RESPONSE_DIR, filename)
-                    with open(response_file, 'w') as f:
-                        json.dump(result, f)
-                    
-                    os.remove(filepath)
-                    processed.add(filename)
-                    
-                    log_terminal(f"Response: {result.get('signal', 'ERROR')}", status="FILE")
-                    
-                except Exception as e:
-                    log_terminal(f"Error: {e}", status="ERROR")
                     try:
-                        error_data = {"error": str(e)}
-                        response_file = os.path.join(RESPONSE_DIR, filename)
+                        processing.add(file_key)
+                        time.sleep(0.1)
+                        
+                        if not os.path.exists(filepath):
+                            processing.discard(file_key)
+                            continue
+                        
+                        with open(filepath, 'r') as f:
+                            data = json.load(f)
+                        
+                        request_id = f"[{terminal_id}] {filename.replace('.json', '')}"
+                        log_terminal(f"Request: {request_id}", status="FILE")
+                        
+                        result = generate_signal(data['candles'])
+                        
+                        response_file = os.path.join(terminal_res_dir, filename)
                         with open(response_file, 'w') as f:
-                            json.dump(error_data, f)
-                        os.remove(filepath)
-                    except:
-                        pass
+                            json.dump(result, f)
+                        
+                        try:
+                            os.remove(filepath)
+                        except:
+                            pass
+                        
+                        processed[terminal_id].add(filename)
+                        processing.discard(file_key)
+                        
+                        log_terminal(f"Response: {result.get('signal', 'ERROR')} -> {terminal_id}", 
+                                   status="FILE")
+                        
+                    except Exception as e:
+                        log_terminal(f"Error processing {file_key}: {e}", status="ERROR")
+                        processing.discard(file_key)
+                        try:
+                            error_data = {"error": str(e)}
+                            response_file = os.path.join(terminal_res_dir, filename)
+                            with open(response_file, 'w') as f:
+                                json.dump(error_data, f)
+                            if os.path.exists(filepath):
+                                os.remove(filepath)
+                        except:
+                            pass
+                
+                if len(processed[terminal_id]) > 100:
+                    processed[terminal_id].clear()
             
-            if len(processed) > 100:
-                processed.clear()
+            if len(processing) > 200:
+                processing.clear()
             
             time.sleep(BRIDGE_CHECK_INTERVAL)
             
         except Exception as e:
             log_terminal(f"Bridge error: {e}", status="ERROR")
+            traceback.print_exc()
             time.sleep(2)
     
     log_terminal("File Bridge stopped", status="FILE")
-
+    
 # --- UI ---
 class SignalServerApp:
     def __init__(self, root):

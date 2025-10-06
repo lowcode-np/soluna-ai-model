@@ -9,10 +9,10 @@
 #include <SolunaSignalClient.mqh>
 
 //--- Input parameters
-input int      CandleCount = 500;            // Number of candles
-input int      SignalInterval = 60;          // Check every N seconds
-input bool     EnableTrading = false;        // Enable auto-trading
-input double   LotSize = 0.01;               // Lot size
+input int      CandleCount            = 500;             // Number of candles
+input ENUM_TIMEFRAMES  SignalInterval = PERIOD_CURRENT;  // Check every
+input bool     EnableTrading          = false;           // Enable auto-trading
+input double   LotSize                = 0.01;            // Lot size
 
 //--- Global variables
 CSolunaSignalClient g_client;
@@ -63,7 +63,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   if(TimeCurrent() - g_last_check < SignalInterval)
+   if(TimeCurrent() - g_last_check < SignalInterval*60)
       return;
    
    g_last_check = TimeCurrent();
