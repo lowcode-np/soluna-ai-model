@@ -76,6 +76,7 @@
 ### 🖥️ Signal Server
 ![Soluna AI Server](https://cdn.imgchest.com/files/6ca64abe28ca.png)
 - **RESTful API**: Production-ready Flask server
+- **MT4 File Bridge**: Integrated file-based communication (no WebRequest needed)
 - **Ensemble Prediction**: Combines predictions from all three models using majority voting
 - **Real-time Processing**: Generate signals from live market data
 - **Health Monitoring**: Built-in health check endpoints
@@ -94,9 +95,9 @@
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     SOLUNA AI PLATFORM                      │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      SOLUNA AI PLATFORM                      │
+└──────────────────────────────────────────────────────────────┘
                               │
                 ┌─────────────┼─────────────┐
                 │                           │
@@ -108,7 +109,7 @@
         ┌───────▼────────┐           ┌──────▼───────┐
         │ • Data Import  │           │ • REST API   │
         │ • Feature Eng  │           │ • Ensemble   │
-        │ • Model Train  │           │ • Real-time  │
+        │ • Model Train  │           │ • MT4 Bridge │
         │ • Export       │           │ • Monitoring │
         └───────┬────────┘           └──────┬───────┘
                 │                           │
@@ -121,6 +122,14 @@
                     │ • lstm_model.h5    │
                     │ • scaler.pkl       │
                     │ • config.json      │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │  MT4 FILE BRIDGE   │
+                    │                    │
+                    │  C:\MT4Bridge\     │
+                    │  ├─ requests\      │
+                    │  └─ responses\     │
                     └─────────┬──────────┘
                               │
                     ┌─────────▼──────────┐
@@ -433,31 +442,38 @@ print(f"Price: {signal['price']}")
 
 ### Setup for MT4/MT5
 
-1. **Copy Library**
+1. **Create Bridge Folder**
+   ```
+   cmd
+   mkdir C:\MT4Bridge\requests
+   mkdir C:\MT4Bridge\responses
+   ```
+   
+2. **Copy Library**
    ```
    Copy SolunaSignalClient.mqh to:
    MT4/MT5 → MQL4/MQL5 → Include folder
    ```
 
-2. **Enable WebRequest**
-   - Open MetaTrader
-   - Tools → Options → Expert Advisors
-   - Check "Allow WebRequest for listed URL"
-   - Add: `http://127.0.0.1:5000`
+3. **Start Server**
+  - Python server includes integrated MT4 Bridge
+  - No additional configuration needed
+  - Bridge monitors C:\MT4Bridge\ automatically
 
 ### Basic Usage
 
 ```cpp
 #include <SolunaSignalClient.mqh>
 
-// Initialize client
+// Initialize client (File-based - no server config)
 CSolunaSignalClient client;
-client.SetServer("127.0.0.1", 5000);
+client.SetMinCandles(300);
+client.SetTimeout(30);  // seconds
 
-// Check connection
+// Check file system
 if(client.CheckHealth())
 {
-   Print("✅ Connected to Soluna AI!");
+   Print("✅ File system ready!");
 }
 
 // Get signal
@@ -470,10 +486,6 @@ if(client.GetSignal(_Symbol, PERIOD_H1, 500, signal))
    if(signal.signal == "BUY")
    {
       // Execute buy order
-   }
-   else if(signal.signal == "SELL")
-   {
-      // Execute sell order
    }
 }
 ```
